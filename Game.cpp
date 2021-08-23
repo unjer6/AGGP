@@ -429,24 +429,14 @@ void Game::OnResize()
 // --------------------------------------------------------
 void Game::Update(float deltaTime, float totalTime)
 {
-	// Grab the input manager and update its state
-	Input& input = Input::GetInstance();
-	input.Update();
-
-	
 	// Update the camera
 	camera->Update(deltaTime);
 
 	// Check individual input
+	Input& input = Input::GetInstance();
 	if (input.KeyDown(VK_ESCAPE)) Quit();
 	if (input.KeyPress(VK_TAB)) GenerateLights();
 
-	
-
-	// The input manager needs to do some cleanup
-	// after the engine has updated, so always
-	// keep this at the VERY END of Game::Update()
-	input.PostUpdate();
 }
 
 // --------------------------------------------------------

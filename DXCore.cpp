@@ -1,4 +1,5 @@
 #include "DXCore.h"
+#include "Input.h"
 
 #include <WindowsX.h>
 #include <sstream>
@@ -393,12 +394,18 @@ HRESULT DXCore::Run()
 		{
 			// Update timer and title bar (if necessary)
 			UpdateTimer();
-			if(titleBarStats)
+			if (titleBarStats)
 				UpdateTitleBarStats();
+
+			// Update the input manager
+			Input::GetInstance().Update();
 
 			// The game loop
 			Update(deltaTime, totalTime);
 			Draw(deltaTime, totalTime);
+
+			// Frame is over, notify the input manager
+			Input::GetInstance().EndOfFrame();
 		}
 	}
 
@@ -659,6 +666,11 @@ LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 		if (device) 
 			OnResize();
 
+		return 0;
+
+	// Has the mouse wheel been scrolled?
+	case WM_MOUSEWHEEL:
+		Input::GetInstance().SetWheelDelta(GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
 		return 0;
 	
 	// Is our focus state changing?

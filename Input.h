@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Windows.h>
-#include <DirectXMath.h>
 
 class Input
 {
@@ -32,21 +31,22 @@ public:
 
 	void Initialize(HWND windowHandle);
 	void Update();
-	void PostUpdate();
+	void EndOfFrame();
 
-	bool GetKeyArray(bool* keyArray, int size = 256);
-
-	int GetMouseX() { return mouseX; }
-	int GetMouseY() { return mouseY; }
-	int GetMouseXDelta() { return mouseXDelta; }
-	int GetMouseYDelta() { return mouseYDelta; }
-	float GetMouseWheel() { return wheelDelta; }
+	int GetMouseX();
+	int GetMouseY();
+	int GetMouseXDelta();
+	int GetMouseYDelta();
+	float GetMouseWheel();
+	void SetWheelDelta(float delta);
 
 	bool KeyDown(int key);
 	bool KeyUp(int key);
 
 	bool KeyPress(int key);
 	bool KeyRelease(int key);
+
+	bool GetKeyArray(bool* keyArray, int size = 256);
 
 	bool MouseLeftDown();
 	bool MouseRightDown();
@@ -66,17 +66,21 @@ public:
 	bool MouseMiddleRelease();
 
 private:
+	// Arrays for the current and previous key states
 	unsigned char* kbState;
 	unsigned char* prevKbState;
 
+	// Mouse position and wheel data
 	int mouseX;
 	int mouseY;
 	int prevMouseX;
 	int prevMouseY;
 	int mouseXDelta;
 	int mouseYDelta;
-
 	float wheelDelta;
+
+	// The window's handle (id) from the OS, so
+	// we can get the cursor's position
 	HWND windowHandle;
 };
 
