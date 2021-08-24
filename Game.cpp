@@ -23,15 +23,6 @@ using namespace DirectX;
 #define LoadTexture(file, srv) CreateWICTextureFromFile(device.Get(), context.Get(), GetFullPathTo_Wide(file).c_str(), 0, srv.GetAddressOf())
 #define LoadShader(type, file) new type(device.Get(), context.Get(), GetFullPathTo_Wide(file).c_str())
 
-// TODO:
-// - DONE - Update transform to have inv trans world
-// - DONE - Remove shader "options" (textures on/off, etc.)
-// - DONE - Add sky stuff (shaders, assets, sky class, etc.)
-// - DONE - Create PBR and non-PBR materials (might be done?)
-// - DONE - Create scene w/ both PBR and non-PBR objects
-// - DONE - Remove pixel shader swapping during draw
-// - Make non-PBR roughness affect shininess
-// - DONE Add mouse wheel to input
 
 // --------------------------------------------------------
 // Constructor
