@@ -85,7 +85,7 @@ float SpecularBlinnPhong(float3 normal, float3 dirToLight, float3 toCamera, floa
 // === LIGHT TYPES FOR BASIC LIGHTING ===============================
 
 
-float3 DirLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float roughness, float3 surfaceColor)
+float3 DirLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float3 surfaceColor)
 {
 	// Get normalize direction to the light
 	float3 toLight = normalize(-light.Direction);
@@ -93,14 +93,14 @@ float3 DirLight(Light light, float3 normal, float3 worldPos, float3 camPos, floa
 
 	// Calculate the light amounts
 	float diff = Diffuse(normal, toLight);
-	float spec = SpecularBlinnPhong(normal, toLight, toCam, shininess) * (1.0f - roughness);
+	float spec = SpecularBlinnPhong(normal, toLight, toCam, shininess);
 
 	// Combine
 	return (diff * surfaceColor + spec) * light.Intensity * light.Color;
 }
 
 
-float3 PointLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float roughness, float3 surfaceColor)
+float3 PointLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float3 surfaceColor)
 {
 	// Calc light direction
 	float3 toLight = normalize(light.Position - worldPos);
@@ -109,14 +109,14 @@ float3 PointLight(Light light, float3 normal, float3 worldPos, float3 camPos, fl
 	// Calculate the light amounts
 	float atten = Attenuate(light, worldPos);
 	float diff = Diffuse(normal, toLight);
-	float spec = SpecularBlinnPhong(normal, toLight, toCam, shininess) * (1.0f - roughness);
+	float spec = SpecularBlinnPhong(normal, toLight, toCam, shininess);
 
 	// Combine
 	return (diff * surfaceColor + spec) * atten * light.Intensity * light.Color;
 }
 
 
-float3 SpotLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float roughness, float3 surfaceColor)
+float3 SpotLight(Light light, float3 normal, float3 worldPos, float3 camPos, float shininess, float3 surfaceColor)
 {
 	// Calculate the spot falloff
 	float3 toLight = normalize(light.Position - worldPos);
@@ -124,7 +124,7 @@ float3 SpotLight(Light light, float3 normal, float3 worldPos, float3 camPos, flo
 	
 	// Combine with the point light calculation
 	// Note: This could be optimized a bit
-	return PointLight(light, normal, worldPos, camPos, shininess, roughness, surfaceColor) * penumbra;
+	return PointLight(light, normal, worldPos, camPos, shininess, surfaceColor) * penumbra;
 }
 
 

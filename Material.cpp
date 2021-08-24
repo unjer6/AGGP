@@ -47,16 +47,14 @@ void Material::PrepareMaterial(Transform* transform, Camera* cam)
 
 	// Set pixel shader data
 	ps->SetFloat4("Color", color); 
-	if (ps->HasVariable("Shininess"))
-		ps->SetFloat("Shininess", shininess);
+	ps->SetFloat("Shininess", shininess);
 	ps->CopyBufferData("perMaterial");
 
 	// Set SRVs
 	ps->SetShaderResourceView("AlbedoTexture", albedoSRV);
 	ps->SetShaderResourceView("NormalTexture", normalSRV);
 	ps->SetShaderResourceView("RoughnessTexture", roughnessSRV);
-	if(ps->HasShaderResourceView("MetalTexture"))
-		ps->SetShaderResourceView("MetalTexture", metalSRV);
+	ps->SetShaderResourceView("MetalTexture", metalSRV);
 
 	// Set sampler
 	ps->SetSamplerState("BasicSampler", sampler);

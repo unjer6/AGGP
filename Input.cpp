@@ -227,8 +227,7 @@ bool Input::KeyRelease(int key)
 //  A utility function to fill a given array of booleans 
 //  with the current state of the keyboard.  This is most
 //  useful when hooking the engine's input up to another
-//  system, such as a user interface library.  (You probably 
-//  won't use this very much, if at all!)
+//  system, such as a user interface library.
 // 
 //  keyArray - pointer to a boolean array which will be
 //             filled with the current keyboard state

@@ -57,19 +57,17 @@ float4 main(VertexToPixel input) : SV_TARGET
 	// Normal mapping
 	input.normal = NormalMapping(NormalTexture, BasicSampler, input.uv, input.normal, input.tangent);
 	
-	// Assuming roughness is a spec map here
+	// Treating roughness as a pseduo-spec map here, so applying it as
+	// a modifier to the overall shininess value of the material
 	float roughness = RoughnessTexture.Sample(BasicSampler, input.uv).r;
-
+	float specPower = max(Shininess * (1.0f - roughness), 0.01f); // Ensure we never hit 0
+	
 	// Gamma correct the texture back to linear space and apply the color tint
 	float4 surfaceColor = AlbedoTexture.Sample(BasicSampler, input.uv);
 	surfaceColor.rgb = pow(surfaceColor.rgb, 2.2) * Color.rgb;
 
 	// Total color for this pixel
 	float3 totalColor = float3(0,0,0);
-
-	// Apply the roughness map to the shininess to
-	// get a per-pixel specular power
-	float specPower = Shininess * (1.0f - roughness);
 
 	// Loop through all lights this frame
 	for(int i = 0; i < LightCount; i++)
@@ -78,15 +76,15 @@ float4 main(VertexToPixel input) : SV_TARGET
 		switch (Lights[i].Type)
 		{
 		case LIGHT_TYPE_DIRECTIONAL:
-			totalColor += DirLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, roughness, surfaceColor.rgb);
+			totalColor += DirLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, surfaceColor.rgb);
 			break;
 
 		case LIGHT_TYPE_POINT:
-			totalColor += PointLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, roughness, surfaceColor.rgb);
+			totalColor += PointLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, surfaceColor.rgb);
 			break;
 
 		case LIGHT_TYPE_SPOT:
-			totalColor += SpotLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, roughness, surfaceColor.rgb);
+			totalColor += SpotLight(Lights[i], input.normal, input.worldPos, CameraPosition, specPower, surfaceColor.rgb);
 			break;
 		}
 	}

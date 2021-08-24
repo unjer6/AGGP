@@ -1,4 +1,7 @@
 
+#define SIMPLE_SHADER_REPORT_ERRORS
+#define SIMPLE_SHADER_REPORT_WARNINGS
+
 #include <Windows.h>
 #include "Game.h"
 
