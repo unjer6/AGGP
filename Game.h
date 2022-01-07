@@ -31,20 +31,9 @@ public:
 
 private:
 
-	// Input and mesh swapping
-	byte keys[256];
-	byte prevKeys[256];
-
-	// Keep track of "stuff" to clean up
-	std::vector<Mesh*> meshes;
-	std::vector<Material*> materials;
-	std::vector<GameEntity*>* currentScene;
-	std::vector<GameEntity*> entities;
-	std::vector<GameEntity*> entitiesRandom;
-	std::vector<GameEntity*> entitiesLineup;
-	std::vector<GameEntity*> entitiesGradient;
-	std::vector<ISimpleShader*> shaders;
-	Camera* camera;
+	// Our scene
+	std::vector<std::shared_ptr<GameEntity>> entities;
+	std::shared_ptr<Camera> camera;
 
 	// Lights
 	std::vector<Light> lights;
@@ -52,19 +41,19 @@ private:
 
 	// These will be loaded along with other assets and
 	// saved to these variables for ease of access
-	Mesh* lightMesh;
-	SimpleVertexShader* lightVS;
-	SimplePixelShader* lightPS;
+	std::shared_ptr<Mesh> lightMesh;
+	std::shared_ptr<SimpleVertexShader> lightVS;
+	std::shared_ptr<SimplePixelShader> lightPS;
 
 	// Text & ui
-	DirectX::SpriteFont* arial;
-	DirectX::SpriteBatch* spriteBatch;
+	std::shared_ptr<DirectX::SpriteFont> arial;
+	std::shared_ptr<DirectX::SpriteBatch> spriteBatch;
 
 	// Texture related resources
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions;
 
 	// Skybox
-	Sky* sky;
+	std::shared_ptr<Sky> sky;
 
 	// General helpers for setup and drawing
 	void GenerateLights();

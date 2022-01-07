@@ -59,7 +59,7 @@ DXCore::DXCore(
 	this->totalTime = 0;
 
 	// Query performance counter for accurate timing information
-	__int64 perfFreq;
+	__int64 perfFreq = 0;
 	QueryPerformanceFrequency((LARGE_INTEGER*)&perfFreq);
 	perfCounterSeconds = 1.0 / (double)perfFreq;
 }
@@ -73,6 +73,9 @@ DXCore::~DXCore()
 	// we don't need to explicitly clean up those DirectX objects
 	// - If we weren't using smart pointers, we'd need
 	//   to call Release() on each DirectX object
+
+	// Delete singletons
+	delete& Input::GetInstance();
 }
 
 // --------------------------------------------------------
@@ -314,7 +317,7 @@ void DXCore::OnResize()
 	}
 
 	// Set up the description of the texture to use for the depth buffer
-	D3D11_TEXTURE2D_DESC depthStencilDesc;
+	D3D11_TEXTURE2D_DESC depthStencilDesc = {};
 	depthStencilDesc.Width				= width;
 	depthStencilDesc.Height				= height;
 	depthStencilDesc.MipLevels			= 1;
@@ -369,7 +372,7 @@ HRESULT DXCore::Run()
 {
 	// Grab the start time now that
 	// the game loop is running
-	__int64 now;
+	__int64 now = 0;
 	QueryPerformanceCounter((LARGE_INTEGER*)&now);
 	startTime = now;
 	currentTime = now;
@@ -432,7 +435,7 @@ void DXCore::Quit()
 void DXCore::UpdateTimer()
 {
 	// Grab the current time
-	__int64 now;
+	__int64 now = 0;
 	QueryPerformanceCounter((LARGE_INTEGER*)&now);
 	currentTime = now;
 
@@ -516,7 +519,7 @@ void DXCore::CreateConsoleWindow(int bufferLines, int bufferColumns, int windowL
 	coninfo.dwSize.X = bufferColumns;
 	SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), coninfo.dwSize);
 
-	SMALL_RECT rect;
+	SMALL_RECT rect = {};
 	rect.Left = 0;
 	rect.Top = 0;
 	rect.Right = windowColumns;
