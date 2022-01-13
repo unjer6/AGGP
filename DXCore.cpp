@@ -151,6 +151,9 @@ HRESULT DXCore::InitWindow()
 	// We need to tell Windows to show it, and how to show it
 	ShowWindow(hWnd, SW_SHOW);
 
+	// Initialize the input manager now that we definitely have a window
+	Input::GetInstance().Initialize(hWnd);
+
 	// Return an "everything is ok" HRESULT value
 	return S_OK;
 }

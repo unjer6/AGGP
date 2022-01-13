@@ -75,9 +75,6 @@ Game::~Game()
 // --------------------------------------------------------
 void Game::Init()
 {
-	// Initialize the input manager with the window's handle
-	Input::GetInstance().Initialize(this->hWnd);
-
 	// Asset loading and entity creation
 	LoadAssetsAndCreateEntities();
 	
