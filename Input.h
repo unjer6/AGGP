@@ -65,6 +65,9 @@ public:
 	bool MouseMiddlePress();
 	bool MouseMiddleRelease();
 
+	void SetGuiKeyboardCapture(bool capture) { guiWantsKeyboard = capture; }
+	void SetGuiMouseCapture(bool capture) { guiWantsMouse = capture; }
+
 private:
 	// Arrays for the current and previous key states
 	unsigned char* kbState {0};
@@ -78,6 +81,9 @@ private:
 	int mouseXDelta {0};
 	int mouseYDelta {0};
 	float wheelDelta {0};
+
+	bool guiWantsKeyboard;
+	bool guiWantsMouse;
 
 	// The window's handle (id) from the OS, so
 	// we can get the cursor's position

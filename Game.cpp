@@ -8,6 +8,10 @@
 
 #include "WICTextureLoader.h"
 
+#include "ImGUI/imgui.h"
+#include "ImGUI/imgui_impl_dx11.h"
+#include "ImGUI/imgui_impl_win32.h"
+
 
 // Needed for a helper function to read compiled shader files from the hard drive
 #pragma comment(lib, "d3dcompiler.lib")
@@ -67,6 +71,11 @@ Game::~Game()
 	// we don't need to explicitly clean up those DirectX objects
 	// - If we weren't using smart pointers, we'd need
 	//   to call Release() on each DirectX object
+
+	// ImGui clean up
+	ImGui_ImplDX11_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 }
 
 // --------------------------------------------------------
@@ -93,6 +102,19 @@ void Game::Init()
 		3.0f,		// Move speed
 		1.0f,		// Mouse look
 		this->width / (float)this->height); // Aspect ratio
+
+	// Initialize ImGui
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+
+	// Pick a style (uncomment one of these 3)
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+	//ImGui::StyleColorsClassic();
+	
+	// Setup Platform/Renderer backends
+	ImGui_ImplWin32_Init(hWnd);
+	ImGui_ImplDX11_Init(device.Get(), context.Get());
 }
 
 
@@ -438,11 +460,146 @@ void Game::OnResize()
 // --------------------------------------------------------
 void Game::Update(float deltaTime, float totalTime)
 {
+	Input& input = Input::GetInstance();
+
+	// Reset input manager's gui state so we don’t
+	// taint our own input (you’ll uncomment later)
+	input.SetGuiKeyboardCapture(false);
+	input.SetGuiMouseCapture(false);
+	
+	// Set io info
+	ImGuiIO& io = ImGui::GetIO();
+	io.DeltaTime = deltaTime;
+	io.DisplaySize.x = (float)this->width;
+	io.DisplaySize.y = (float)this->height;
+	io.KeyCtrl = input.KeyDown(VK_CONTROL);
+	io.KeyShift = input.KeyDown(VK_SHIFT);
+	io.KeyAlt = input.KeyDown(VK_MENU);
+	io.MousePos.x = (float)input.GetMouseX();
+	io.MousePos.y = (float)input.GetMouseY();
+	io.MouseDown[0] = input.MouseLeftDown();
+	io.MouseDown[1] = input.MouseRightDown();
+	io.MouseDown[2] = input.MouseMiddleDown();
+	io.MouseWheel = input.GetMouseWheel();
+	input.GetKeyArray(io.KeysDown, 256);
+
+	// Reset the frame
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+
+	// Determine new input capture (you’ll uncomment later)
+	input.SetGuiKeyboardCapture(io.WantCaptureKeyboard);
+	input.SetGuiMouseCapture(io.WantCaptureMouse);
+	
+	// Show the demo window
+	//ImGui::ShowDemoWindow();
+
+	// Show custom gui windows
+	{
+		// only add stuff if the window isn't collapsed
+		if (ImGui::Begin("Stats for nerds")) {
+			ImGui::Text("Framerate: %d", (int)io.Framerate);
+			ImGui::Text("Width: %d", width);
+			ImGui::SameLine(); ImGui::Text("Height: %d", height);
+			ImGui::Text("Aspect Ratio: %f", (float)width / (float)height);
+			ImGui::Text("Entity Count: %d", entities.size());
+			ImGui::SameLine(); ImGui::Text("Light Count: %d", lights.size());
+		}
+		ImGui::End();
+
+		if (ImGui::Begin("Game Elements")) {
+			if (ImGui::TreeNode("Camera")) {
+				Transform* transform = camera->GetTransform();
+
+				XMFLOAT3 pos = transform->GetPosition();
+				ImGui::Text("Position:");
+				ImGui::SameLine(); ImGui::DragFloat3("##pos_drag_camera", &pos.x, 0.1f);
+				transform->SetPosition(pos.x, pos.y, pos.z);
+
+				XMFLOAT3 rot = transform->GetPitchYawRoll();
+				ImGui::Text("Rotation:");
+				ImGui::SameLine(); ImGui::DragFloat2("##rot_drag_camera_", &rot.x, 0.01f);
+				transform->SetRotation(rot.x, rot.y, rot.z);
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Entities")) {
+
+				for (int i = 0; i < entities.size(); i++) {
+					if (ImGui::TreeNode((void*)(intptr_t)(i+1), "Entity %d", i+1)) {
+						Transform* transform = entities[i].get()->GetTransform();
+
+						XMFLOAT3 pos = transform->GetPosition();
+						ImGui::Text("Position:");
+						ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_entity_" + std::to_string(i+1)).c_str(), &pos.x, 0.1f);
+						transform->SetPosition(pos.x, pos.y, pos.z);
+
+						XMFLOAT3 rot = transform->GetPitchYawRoll();
+						ImGui::Text("Rotation:");
+						ImGui::SameLine(); ImGui::DragFloat3(("##rot_drag_entity_" + std::to_string(i + 1)).c_str(), &rot.x, 0.1f);
+						transform->SetRotation(rot.x, rot.y, rot.z);
+
+						XMFLOAT3 scale = transform->GetScale();
+						ImGui::Text("Scale:");
+						ImGui::SameLine(); ImGui::DragFloat3(("##sca_drag_entity_" + std::to_string(i + 1)).c_str(), &scale.x, 0.1f);
+						transform->SetScale(scale.x, scale.y, scale.z);
+
+						ImGui::TreePop();
+					}
+				}
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Lights")) {
+
+				for (int i = 0; i < lights.size(); i++) {
+					if (ImGui::TreeNode((void*)(intptr_t)(i + 1), "Light %d", i + 1)) {
+						ImGui::Text("Type:");
+						ImGui::SameLine(); ImGui::Combo(("##type_combo_light_" + std::to_string(i + 1)).c_str(), &lights[i].Type, "Directional\0Point\0Spotlight\0\0");
+
+						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
+							ImGui::Text("Position:");
+							ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Position.x, 0.1f);
+						}
+						
+						ImGui::Text("Direction:");
+						ImGui::SameLine(); ImGui::DragFloat3(("##dir_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Direction.x, 0.1f);
+
+						ImGui::Text("Color:");
+						ImGui::SameLine(); ImGui::DragFloat3(("##col_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Color.x, 0.01f, 0, 1);
+
+						ImGui::Text("Intensity:");
+						ImGui::SameLine(); ImGui::DragFloat(("##int_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Intensity, 0.1f, 0, INFINITE);
+
+						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
+							ImGui::Text("Range:");
+							ImGui::SameLine(); ImGui::DragFloat(("##range_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Range, 0.1f, 0, INFINITE);
+						}
+
+						if (lights[i].Type == LIGHT_TYPE_SPOT) {
+							ImGui::Text("Spotlight Falloff:");
+							ImGui::SameLine(); ImGui::DragFloat(("##falloff_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].SpotFalloff, 0.1f, 0.1f, INFINITE);
+							ImGui::Text("(Make sure you set falloff and direction for spotlights)");
+						}
+
+						ImGui::TreePop();
+					}
+				}
+
+				ImGui::TreePop();
+			}
+		}
+		ImGui::End();
+	}
+
+
 	// Update the camera
 	camera->Update(deltaTime);
 
 	// Check individual input
-	Input& input = Input::GetInstance();
 	if (input.KeyDown(VK_ESCAPE)) Quit();
 	if (input.KeyPress(VK_TAB)) GenerateLights();
 }
@@ -493,6 +650,9 @@ void Game::Draw(float deltaTime, float totalTime)
 	// Draw some UI
 	DrawUI();
 
+	// Draw ImGui
+	ImGui::Render();
+	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
 	// Present the back buffer to the user
 	//  - Puts the final frame we're drawing into the window so the user can see it

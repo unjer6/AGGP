@@ -86,7 +86,7 @@ void Material::PrepareMaterial(Transform* transform, std::shared_ptr<Camera> cam
 
 	// Send data to the vertex shader
 	vs->SetMatrix4x4("world", transform->GetWorldMatrix());
-	vs->SetMatrix4x4("worldInvTrans", transform->GetWorldInverseTransposeMatrix());
+	vs->SetMatrix4x4("worldInverseTranspose", transform->GetWorldInverseTransposeMatrix());
 	vs->SetMatrix4x4("view", camera->GetView());
 	vs->SetMatrix4x4("projection", camera->GetProjection());
 	vs->CopyAllBufferData();
