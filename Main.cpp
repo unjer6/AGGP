@@ -1,7 +1,4 @@
 
-#define SIMPLE_SHADER_REPORT_ERRORS
-#define SIMPLE_SHADER_REPORT_WARNINGS
-
 #include <Windows.h>
 #include "Game.h"
 
@@ -9,10 +6,10 @@
 // Entry point for a graphical (non-console) Windows application
 // --------------------------------------------------------
 int WINAPI WinMain(
-	_In_ HINSTANCE hInstance,		// The handle to this app's instance
+	_In_ HINSTANCE hInstance,			// The handle to this app's instance
 	_In_opt_ HINSTANCE hPrevInstance,	// A handle to the previous instance of the app (always NULL)
-	_In_ LPSTR lpCmdLine,			// Command line params
-	_In_ int nCmdShow)				// How the window should be shown (we ignore this)
+	_In_ LPSTR lpCmdLine,				// Command line params
+	_In_ int nCmdShow)					// How the window should be shown (we ignore this)
 {
 #if defined(DEBUG) | defined(_DEBUG)
 	// Enable memory leak detection as a quick and dirty

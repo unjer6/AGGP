@@ -1,17 +1,6 @@
-
-#include <stdlib.h>     // For seeding random and rand()
-#include <time.h>       // For grabbing time (to seed random)
-
 #include "Game.h"
 #include "Vertex.h"
 #include "Input.h"
-
-#include "WICTextureLoader.h"
-
-#include "ImGUI/imgui.h"
-#include "ImGUI/imgui_impl_dx11.h"
-#include "ImGUI/imgui_impl_win32.h"
-
 
 // Needed for a helper function to read compiled shader files from the hard drive
 #pragma comment(lib, "d3dcompiler.lib")
@@ -19,14 +8,6 @@
 
 // For the DirectX Math library
 using namespace DirectX;
-
-// Helper macro for getting a float between min and max
-#define RandomRange(min, max) (float)rand() / RAND_MAX * (max - min) + min
-
-// Helper macros for making texture and shader loading code more succinct
-#define LoadTexture(file, srv) CreateWICTextureFromFile(device.Get(), context.Get(), GetFullPathTo_Wide(file).c_str(), 0, srv.GetAddressOf())
-#define LoadShader(type, file) std::make_shared<type>(device.Get(), context.Get(), GetFullPathTo_Wide(file).c_str())
-
 
 // --------------------------------------------------------
 // Constructor
@@ -43,21 +24,13 @@ Game::Game(HINSTANCE hInstance)
 		1280,			   // Width of the window's client area
 		720,			   // Height of the window's client area
 		true),			   // Show extra stats (fps) in title bar?
-	camera(0),
-	sky(0),
-	spriteBatch(0),
-	lightCount(0),
-	arial(0)
+	vsync(false)
 {
-	// Seed random
-	srand((unsigned int)time(0));
-
 #if defined(DEBUG) || defined(_DEBUG)
 	// Do we want a console window?  Probably only in debug mode
 	CreateConsoleWindow(500, 120, 32, 120);
 	printf("Console window created successfully.  Feel free to printf() here.\n");
 #endif
-
 }
 
 // --------------------------------------------------------
@@ -70,12 +43,8 @@ Game::~Game()
 	// Note: Since we're using smart pointers (ComPtr),
 	// we don't need to explicitly clean up those DirectX objects
 	// - If we weren't using smart pointers, we'd need
-	//   to call Release() on each DirectX object
+	//   to call Release() on each DirectX object created in Game
 
-	// ImGui clean up
-	ImGui_ImplDX11_Shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
 }
 
 // --------------------------------------------------------
@@ -84,361 +53,172 @@ Game::~Game()
 // --------------------------------------------------------
 void Game::Init()
 {
-	// Asset loading and entity creation
-	LoadAssetsAndCreateEntities();
+	// Helper methods for loading shaders, creating some basic
+	// geometry to draw and some simple camera matrices.
+	//  - You'll be expanding and/or replacing these later
+	LoadShaders();
+	CreateBasicGeometry();
 	
 	// Tell the input assembler stage of the pipeline what kind of
 	// geometric primitives (points, lines or triangles) we want to draw.  
 	// Essentially: "What kind of shape should the GPU draw with our data?"
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
 
-	// Set up lights initially
-	lightCount = 64;
-	GenerateLights();
+// --------------------------------------------------------
+// Loads shaders from compiled shader object (.cso) files
+// and also created the Input Layout that describes our 
+// vertex data to the rendering pipeline. 
+// - Input Layout creation is done here because it must 
+//    be verified against vertex shader byte code
+// - We'll have that byte code already loaded below
+// --------------------------------------------------------
+void Game::LoadShaders()
+{
+	// Blob for reading raw data
+	// - This is a simplified way of handling raw data
+	ID3DBlob* shaderBlob;
 
-	// Make our camera
-	camera = std::make_shared<Camera>(
-		0.0f, 0.0f, -10.0f,	// Position
-		3.0f,		// Move speed
-		1.0f,		// Mouse look
-		this->width / (float)this->height); // Aspect ratio
+	// Read our compiled vertex shader code into a blob
+	// - Essentially just "open the file and plop its contents here"
+	D3DReadFileToBlob(
+		GetFullPathTo_Wide(L"VertexShader.cso").c_str(), // Using a custom helper for file paths
+		&shaderBlob);
 
-	// Initialize ImGui
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
+	// Create a vertex shader from the information we
+	// have read into the blob above
+	// - A blob can give a pointer to its contents, and knows its own size
+	device->CreateVertexShader(
+		shaderBlob->GetBufferPointer(), // Get a pointer to the blob's contents
+		shaderBlob->GetBufferSize(),	// How big is that data?
+		0,								// No classes in this shader
+		vertexShader.GetAddressOf());	// The address of the ID3D11VertexShader*
 
-	// Pick a style (uncomment one of these 3)
-	ImGui::StyleColorsDark();
-	//ImGui::StyleColorsLight();
-	//ImGui::StyleColorsClassic();
-	
-	// Setup Platform/Renderer backends
-	ImGui_ImplWin32_Init(hWnd);
-	ImGui_ImplDX11_Init(device.Get(), context.Get());
+
+	// Create an input layout that describes the vertex format
+	// used by the vertex shader we're using
+	//  - This is used by the pipeline to know how to interpret the raw data
+	//     sitting inside a vertex buffer
+	//  - Doing this NOW because it requires a vertex shader's byte code to verify against!
+	//  - Luckily, we already have that loaded (the blob above)
+	D3D11_INPUT_ELEMENT_DESC inputElements[2] = {};
+
+	// Set up the first element - a position, which is 3 float values
+	inputElements[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;				// Most formats are described as color channels; really it just means "Three 32-bit floats"
+	inputElements[0].SemanticName = "POSITION";							// This is "POSITION" - needs to match the semantics in our vertex shader input!
+	inputElements[0].AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT;	// How far into the vertex is this?  Assume it's after the previous element
+
+	// Set up the second element - a color, which is 4 more float values
+	inputElements[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;			// 4x 32-bit floats
+	inputElements[1].SemanticName = "COLOR";							// Match our vertex shader input!
+	inputElements[1].AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT;	// After the previous element
+
+	// Create the input layout, verifying our description against actual shader code
+	device->CreateInputLayout(
+		inputElements,					// An array of descriptions
+		2,								// How many elements in that array
+		shaderBlob->GetBufferPointer(),	// Pointer to the code of a shader that uses this layout
+		shaderBlob->GetBufferSize(),	// Size of the shader code that uses this layout
+		inputLayout.GetAddressOf());	// Address of the resulting ID3D11InputLayout*
+
+
+
+	// Read and create the pixel shader
+	//  - Reusing the same blob here, since we're done with the vert shader code
+	D3DReadFileToBlob(
+		GetFullPathTo_Wide(L"PixelShader.cso").c_str(), // Using a custom helper for file paths
+		&shaderBlob);
+
+	device->CreatePixelShader(
+		shaderBlob->GetBufferPointer(),
+		shaderBlob->GetBufferSize(),
+		0,
+		pixelShader.GetAddressOf());
 }
 
 
+
 // --------------------------------------------------------
-// Load all assets and create materials, entities, etc.
+// Creates the geometry we're going to draw - a single triangle for now
 // --------------------------------------------------------
-void Game::LoadAssetsAndCreateEntities()
+void Game::CreateBasicGeometry()
 {
-	// Load shaders using our succinct LoadShader() macro
-	std::shared_ptr<SimpleVertexShader> vertexShader	= LoadShader(SimpleVertexShader, L"VertexShader.cso");
-	std::shared_ptr<SimplePixelShader> pixelShader		= LoadShader(SimplePixelShader, L"PixelShader.cso");
-	std::shared_ptr<SimplePixelShader> pixelShaderPBR	= LoadShader(SimplePixelShader, L"PixelShaderPBR.cso");
-	std::shared_ptr<SimplePixelShader> solidColorPS		= LoadShader(SimplePixelShader, L"SolidColorPS.cso");
-	
-	std::shared_ptr<SimpleVertexShader> skyVS = LoadShader(SimpleVertexShader, L"SkyVS.cso");
-	std::shared_ptr<SimplePixelShader> skyPS  = LoadShader(SimplePixelShader, L"SkyPS.cso");
+	// Create some temporary variables to represent colors
+	// - Not necessary, just makes things more readable
+	XMFLOAT4 red = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+	XMFLOAT4 green = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);
+	XMFLOAT4 blue = XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f);
 
-	// Set up the sprite batch and load the sprite font
-	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
-	arial = std::make_shared<SpriteFont>(device.Get(), GetFullPathTo_Wide(L"../../Assets/Textures/arial.spritefont").c_str());
-
-	// Make the meshes
-	std::shared_ptr<Mesh> sphereMesh = std::make_shared<Mesh>(GetFullPathTo("../../Assets/Models/sphere.obj").c_str(), device);
-	std::shared_ptr<Mesh> helixMesh = std::make_shared<Mesh>(GetFullPathTo("../../Assets/Models/helix.obj").c_str(), device);
-	std::shared_ptr<Mesh> cubeMesh = std::make_shared<Mesh>(GetFullPathTo("../../Assets/Models/cube.obj").c_str(), device);
-	std::shared_ptr<Mesh> coneMesh = std::make_shared<Mesh>(GetFullPathTo("../../Assets/Models/cone.obj").c_str(), device);
-	
-	// Declare the textures we'll need
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> cobbleA,  cobbleN,  cobbleR,  cobbleM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> floorA,  floorN,  floorR,  floorM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> paintA,  paintN,  paintR,  paintM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> scratchedA,  scratchedN,  scratchedR,  scratchedM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> bronzeA,  bronzeN,  bronzeR,  bronzeM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> roughA,  roughN,  roughR,  roughM;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> woodA,  woodN,  woodR,  woodM;
-
-	// Load the textures using our succinct LoadTexture() macro
-	LoadTexture(L"../../Assets/Textures/cobblestone_albedo.png", cobbleA);
-	LoadTexture(L"../../Assets/Textures/cobblestone_normals.png", cobbleN);
-	LoadTexture(L"../../Assets/Textures/cobblestone_roughness.png", cobbleR);
-	LoadTexture(L"../../Assets/Textures/cobblestone_metal.png", cobbleM);
-
-	LoadTexture(L"../../Assets/Textures/floor_albedo.png", floorA);
-	LoadTexture(L"../../Assets/Textures/floor_normals.png", floorN);
-	LoadTexture(L"../../Assets/Textures/floor_roughness.png", floorR);
-	LoadTexture(L"../../Assets/Textures/floor_metal.png", floorM);
-	
-	LoadTexture(L"../../Assets/Textures/paint_albedo.png", paintA);
-	LoadTexture(L"../../Assets/Textures/paint_normals.png", paintN);
-	LoadTexture(L"../../Assets/Textures/paint_roughness.png", paintR);
-	LoadTexture(L"../../Assets/Textures/paint_metal.png", paintM);
-	
-	LoadTexture(L"../../Assets/Textures/scratched_albedo.png", scratchedA);
-	LoadTexture(L"../../Assets/Textures/scratched_normals.png", scratchedN);
-	LoadTexture(L"../../Assets/Textures/scratched_roughness.png", scratchedR);
-	LoadTexture(L"../../Assets/Textures/scratched_metal.png", scratchedM);
-	
-	LoadTexture(L"../../Assets/Textures/bronze_albedo.png", bronzeA);
-	LoadTexture(L"../../Assets/Textures/bronze_normals.png", bronzeN);
-	LoadTexture(L"../../Assets/Textures/bronze_roughness.png", bronzeR);
-	LoadTexture(L"../../Assets/Textures/bronze_metal.png", bronzeM);
-	
-	LoadTexture(L"../../Assets/Textures/rough_albedo.png", roughA);
-	LoadTexture(L"../../Assets/Textures/rough_normals.png", roughN);
-	LoadTexture(L"../../Assets/Textures/rough_roughness.png", roughR);
-	LoadTexture(L"../../Assets/Textures/rough_metal.png", roughM);
-	
-	LoadTexture(L"../../Assets/Textures/wood_albedo.png", woodA);
-	LoadTexture(L"../../Assets/Textures/wood_normals.png", woodN);
-	LoadTexture(L"../../Assets/Textures/wood_roughness.png", woodR);
-	LoadTexture(L"../../Assets/Textures/wood_metal.png", woodM);
-
-	// Describe and create our sampler state
-	D3D11_SAMPLER_DESC sampDesc = {};
-	sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.Filter = D3D11_FILTER_ANISOTROPIC;
-	sampDesc.MaxAnisotropy = 16;
-	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	device->CreateSamplerState(&sampDesc, samplerOptions.GetAddressOf());
-
-
-	// Create the sky using 6 images
-	sky = std::make_shared<Sky>(
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\right.png").c_str(),
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\left.png").c_str(),
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\up.png").c_str(),
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\down.png").c_str(),
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\front.png").c_str(),
-		GetFullPathTo_Wide(L"..\\..\\Assets\\Skies\\Clouds Blue\\back.png").c_str(),
-		cubeMesh,
-		skyVS,
-		skyPS,
-		samplerOptions,
-		device,
-		context);
-
-	// Create non-PBR materials
-	std::shared_ptr<Material> cobbleMat2x = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	cobbleMat2x->AddSampler("BasicSampler", samplerOptions);
-	cobbleMat2x->AddTextureSRV("Albedo", cobbleA);
-	cobbleMat2x->AddTextureSRV("NormalMap", cobbleN);
-	cobbleMat2x->AddTextureSRV("RoughnessMap", cobbleR);
-
-	std::shared_ptr<Material> cobbleMat4x = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(4, 4));
-	cobbleMat4x->AddSampler("BasicSampler", samplerOptions);
-	cobbleMat4x->AddTextureSRV("Albedo", cobbleA);
-	cobbleMat4x->AddTextureSRV("NormalMap", cobbleN);
-	cobbleMat4x->AddTextureSRV("RoughnessMap", cobbleR);
-
-	std::shared_ptr<Material> floorMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	floorMat->AddSampler("BasicSampler", samplerOptions);
-	floorMat->AddTextureSRV("Albedo", floorA);
-	floorMat->AddTextureSRV("NormalMap", floorN);
-	floorMat->AddTextureSRV("RoughnessMap", floorR);
-
-	std::shared_ptr<Material> paintMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	paintMat->AddSampler("BasicSampler", samplerOptions);
-	paintMat->AddTextureSRV("Albedo", paintA);
-	paintMat->AddTextureSRV("NormalMap", paintN);
-	paintMat->AddTextureSRV("RoughnessMap", paintR);
-
-	std::shared_ptr<Material> scratchedMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	scratchedMat->AddSampler("BasicSampler", samplerOptions);
-	scratchedMat->AddTextureSRV("Albedo", scratchedA);
-	scratchedMat->AddTextureSRV("NormalMap", scratchedN);
-	scratchedMat->AddTextureSRV("RoughnessMap", scratchedR);
-
-	std::shared_ptr<Material> bronzeMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	bronzeMat->AddSampler("BasicSampler", samplerOptions);
-	bronzeMat->AddTextureSRV("Albedo", bronzeA);
-	bronzeMat->AddTextureSRV("NormalMap", bronzeN);
-	bronzeMat->AddTextureSRV("RoughnessMap", bronzeR);
-
-	std::shared_ptr<Material> roughMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	roughMat->AddSampler("BasicSampler", samplerOptions);
-	roughMat->AddTextureSRV("Albedo", roughA);
-	roughMat->AddTextureSRV("NormalMap", roughN);
-	roughMat->AddTextureSRV("RoughnessMap", roughR);
-
-	std::shared_ptr<Material> woodMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	woodMat->AddSampler("BasicSampler", samplerOptions);
-	woodMat->AddTextureSRV("Albedo", woodA);
-	woodMat->AddTextureSRV("NormalMap", woodN);
-	woodMat->AddTextureSRV("RoughnessMap", woodR);
-
-
-	// Create PBR materials
-	std::shared_ptr<Material> cobbleMat2xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	cobbleMat2xPBR->AddSampler("BasicSampler", samplerOptions);
-	cobbleMat2xPBR->AddTextureSRV("Albedo", cobbleA);
-	cobbleMat2xPBR->AddTextureSRV("NormalMap", cobbleN);
-	cobbleMat2xPBR->AddTextureSRV("RoughnessMap", cobbleR);
-	cobbleMat2xPBR->AddTextureSRV("MetalMap", cobbleM);
-
-	std::shared_ptr<Material> cobbleMat4xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(4, 4));
-	cobbleMat4xPBR->AddSampler("BasicSampler", samplerOptions);
-	cobbleMat4xPBR->AddTextureSRV("Albedo", cobbleA);
-	cobbleMat4xPBR->AddTextureSRV("NormalMap", cobbleN);
-	cobbleMat4xPBR->AddTextureSRV("RoughnessMap", cobbleR);
-	cobbleMat4xPBR->AddTextureSRV("MetalMap", cobbleM);
-
-	std::shared_ptr<Material> floorMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	floorMatPBR->AddSampler("BasicSampler", samplerOptions);
-	floorMatPBR->AddTextureSRV("Albedo", floorA);
-	floorMatPBR->AddTextureSRV("NormalMap", floorN);
-	floorMatPBR->AddTextureSRV("RoughnessMap", floorR);
-	floorMatPBR->AddTextureSRV("MetalMap", floorM);
-
-	std::shared_ptr<Material> paintMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	paintMatPBR->AddSampler("BasicSampler", samplerOptions);
-	paintMatPBR->AddTextureSRV("Albedo", paintA);
-	paintMatPBR->AddTextureSRV("NormalMap", paintN);
-	paintMatPBR->AddTextureSRV("RoughnessMap", paintR);
-	paintMatPBR->AddTextureSRV("MetalMap", paintM);
-
-	std::shared_ptr<Material> scratchedMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	scratchedMatPBR->AddSampler("BasicSampler", samplerOptions);
-	scratchedMatPBR->AddTextureSRV("Albedo", scratchedA);
-	scratchedMatPBR->AddTextureSRV("NormalMap", scratchedN);
-	scratchedMatPBR->AddTextureSRV("RoughnessMap", scratchedR);
-	scratchedMatPBR->AddTextureSRV("MetalMap", scratchedM);
-
-	std::shared_ptr<Material> bronzeMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	bronzeMatPBR->AddSampler("BasicSampler", samplerOptions);
-	bronzeMatPBR->AddTextureSRV("Albedo", bronzeA);
-	bronzeMatPBR->AddTextureSRV("NormalMap", bronzeN);
-	bronzeMatPBR->AddTextureSRV("RoughnessMap", bronzeR);
-	bronzeMatPBR->AddTextureSRV("MetalMap", bronzeM);
-
-	std::shared_ptr<Material> roughMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	roughMatPBR->AddSampler("BasicSampler", samplerOptions);
-	roughMatPBR->AddTextureSRV("Albedo", roughA);
-	roughMatPBR->AddTextureSRV("NormalMap", roughN);
-	roughMatPBR->AddTextureSRV("RoughnessMap", roughR);
-	roughMatPBR->AddTextureSRV("MetalMap", roughM);
-
-	std::shared_ptr<Material> woodMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
-	woodMatPBR->AddSampler("BasicSampler", samplerOptions);
-	woodMatPBR->AddTextureSRV("Albedo", woodA);
-	woodMatPBR->AddTextureSRV("NormalMap", woodN);
-	woodMatPBR->AddTextureSRV("RoughnessMap", woodR);
-	woodMatPBR->AddTextureSRV("MetalMap", woodM);
-
-
-
-	// === Create the PBR entities =====================================
-	std::shared_ptr<GameEntity> cobSpherePBR = std::make_shared<GameEntity>(sphereMesh, cobbleMat2xPBR);
-	cobSpherePBR->GetTransform()->SetPosition(-6, 2, 0);
-
-	std::shared_ptr<GameEntity> floorSpherePBR = std::make_shared<GameEntity>(sphereMesh, floorMatPBR);
-	floorSpherePBR->GetTransform()->SetPosition(-4, 2, 0);
-
-	std::shared_ptr<GameEntity> paintSpherePBR = std::make_shared<GameEntity>(sphereMesh, paintMatPBR);
-	paintSpherePBR->GetTransform()->SetPosition(-2, 2, 0);
-
-	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, scratchedMatPBR);
-	scratchSpherePBR->GetTransform()->SetPosition(0, 2, 0);
-
-	std::shared_ptr<GameEntity> bronzeSpherePBR = std::make_shared<GameEntity>(sphereMesh, bronzeMatPBR);
-	bronzeSpherePBR->GetTransform()->SetPosition(2, 2, 0);
-
-	std::shared_ptr<GameEntity> roughSpherePBR = std::make_shared<GameEntity>(sphereMesh, roughMatPBR);
-	roughSpherePBR->GetTransform()->SetPosition(4, 2, 0);
-
-	std::shared_ptr<GameEntity> woodSpherePBR = std::make_shared<GameEntity>(sphereMesh, woodMatPBR);
-	woodSpherePBR->GetTransform()->SetPosition(6, 2, 0);
-
-	entities.push_back(cobSpherePBR);
-	entities.push_back(floorSpherePBR);
-	entities.push_back(paintSpherePBR);
-	entities.push_back(scratchSpherePBR);
-	entities.push_back(bronzeSpherePBR);
-	entities.push_back(roughSpherePBR);
-	entities.push_back(woodSpherePBR);
-
-	// Create the non-PBR entities ==============================
-	std::shared_ptr<GameEntity> cobSphere = std::make_shared<GameEntity>(sphereMesh, cobbleMat2x);
-	cobSphere->GetTransform()->SetPosition(-6, -2, 0);
-
-	std::shared_ptr<GameEntity> floorSphere = std::make_shared<GameEntity>(sphereMesh, floorMat);
-	floorSphere->GetTransform()->SetPosition(-4, -2, 0);
-
-	std::shared_ptr<GameEntity> paintSphere = std::make_shared<GameEntity>(sphereMesh, paintMat);
-	paintSphere->GetTransform()->SetPosition(-2, -2, 0);
-
-	std::shared_ptr<GameEntity> scratchSphere = std::make_shared<GameEntity>(sphereMesh, scratchedMat);
-	scratchSphere->GetTransform()->SetPosition(0, -2, 0);
-
-	std::shared_ptr<GameEntity> bronzeSphere = std::make_shared<GameEntity>(sphereMesh, bronzeMat);
-	bronzeSphere->GetTransform()->SetPosition(2, -2, 0);
-
-	std::shared_ptr<GameEntity> roughSphere = std::make_shared<GameEntity>(sphereMesh, roughMat);
-	roughSphere->GetTransform()->SetPosition(4, -2, 0);
-
-	std::shared_ptr<GameEntity> woodSphere = std::make_shared<GameEntity>(sphereMesh, woodMat);
-	woodSphere->GetTransform()->SetPosition(6, -2, 0);
-
-	entities.push_back(cobSphere);
-	entities.push_back(floorSphere);
-	entities.push_back(paintSphere);
-	entities.push_back(scratchSphere);
-	entities.push_back(bronzeSphere);
-	entities.push_back(roughSphere);
-	entities.push_back(woodSphere);
-
-
-	// Save assets needed for drawing point lights
-	lightMesh = sphereMesh;
-	lightVS = vertexShader;
-	lightPS = solidColorPS;
-}
-
-
-// --------------------------------------------------------
-// Generates the lights in the scene: 3 directional lights
-// and many random point lights.
-// --------------------------------------------------------
-void Game::GenerateLights()
-{
-	// Reset
-	lights.clear();
-
-	// Setup directional lights
-	Light dir1 = {};
-	dir1.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir1.Direction = XMFLOAT3(1, -1, 1);
-	dir1.Color = XMFLOAT3(0.8f, 0.8f, 0.8f);
-	dir1.Intensity = 1.0f;
-
-	Light dir2 = {};
-	dir2.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir2.Direction = XMFLOAT3(-1, -0.25f, 0);
-	dir2.Color = XMFLOAT3(0.2f, 0.2f, 0.2f);
-	dir2.Intensity = 1.0f;
-
-	Light dir3 = {};
-	dir3.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir3.Direction = XMFLOAT3(0, -1, 1);
-	dir3.Color = XMFLOAT3(0.2f, 0.2f, 0.2f);
-	dir3.Intensity = 1.0f;
-
-	// Add light to the list
-	lights.push_back(dir1);
-	lights.push_back(dir2);
-	lights.push_back(dir3);
-
-	// Create the rest of the lights
-	while (lights.size() < lightCount)
+	// Set up the vertices of the triangle we would like to draw
+	// - We're going to copy this array, exactly as it exists in memory
+	//    over to a DirectX-controlled data structure (the vertex buffer)
+	// - Note: Since we don't have a camera or really any concept of
+	//    a "3d world" yet, we're simply describing positions within the
+	//    bounds of how the rasterizer sees our screen: [-1 to +1] on X and Y
+	// - This means (0,0) is at the very center of the screen.
+	// - These are known as "Normalized Device Coordinates" or "Homogeneous 
+	//    Screen Coords", which are ways to describe a position without
+	//    knowing the exact size (in pixels) of the image/window/etc.  
+	// - Long story short: Resizing the window also resizes the triangle,
+	//    since we're describing the triangle in terms of the window itself
+	Vertex vertices[] =
 	{
-		Light point = {};
-		point.Type = LIGHT_TYPE_POINT;
-		point.Position = XMFLOAT3(RandomRange(-10.0f, 10.0f), RandomRange(-5.0f, 5.0f), RandomRange(-10.0f, 10.0f));
-		point.Color = XMFLOAT3(RandomRange(0, 1), RandomRange(0, 1), RandomRange(0, 1));
-		point.Range = RandomRange(5.0f, 10.0f);
-		point.Intensity = RandomRange(0.1f, 3.0f);
+		{ XMFLOAT3(+0.0f, +0.5f, +0.0f), red },
+		{ XMFLOAT3(+0.5f, -0.5f, +0.0f), blue },
+		{ XMFLOAT3(-0.5f, -0.5f, +0.0f), green },
+	};
 
-		// Add to the list
-		lights.push_back(point);
-	}
+	// Set up the indices, which tell us which vertices to use and in which order
+	// - This is somewhat redundant for just 3 vertices (it's a simple example)
+	// - Indices are technically not required if the vertices are in the buffer 
+	//    in the correct order and each one will be used exactly once
+	// - But just to see how it's done...
+	unsigned int indices[] = { 0, 1, 2 };
+
+
+	// Create the VERTEX BUFFER description -----------------------------------
+	// - The description is created on the stack because we only need
+	//    it to create the buffer.  The description is then useless.
+	D3D11_BUFFER_DESC vbd = {};
+	vbd.Usage = D3D11_USAGE_IMMUTABLE;
+	vbd.ByteWidth = sizeof(Vertex) * 3;       // 3 = number of vertices in the buffer
+	vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER; // Tells DirectX this is a vertex buffer
+	vbd.CPUAccessFlags = 0;
+	vbd.MiscFlags = 0;
+	vbd.StructureByteStride = 0;
+
+	// Create the proper struct to hold the initial vertex data
+	// - This is how we put the initial data into the buffer
+	D3D11_SUBRESOURCE_DATA initialVertexData = {};
+	initialVertexData.pSysMem = vertices;
+
+	// Actually create the buffer with the initial data
+	// - Once we do this, we'll NEVER CHANGE THE BUFFER AGAIN
+	device->CreateBuffer(&vbd, &initialVertexData, vertexBuffer.GetAddressOf());
+
+
+
+	// Create the INDEX BUFFER description ------------------------------------
+	// - The description is created on the stack because we only need
+	//    it to create the buffer.  The description is then useless.
+	D3D11_BUFFER_DESC ibd = {};
+	ibd.Usage = D3D11_USAGE_IMMUTABLE;
+	ibd.ByteWidth = sizeof(unsigned int) * 3;	// 3 = number of indices in the buffer
+	ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;	// Tells DirectX this is an index buffer
+	ibd.CPUAccessFlags = 0;
+	ibd.MiscFlags = 0;
+	ibd.StructureByteStride = 0;
+
+	// Create the proper struct to hold the initial index data
+	// - This is how we put the initial data into the buffer
+	D3D11_SUBRESOURCE_DATA initialIndexData = {};
+	initialIndexData.pSysMem = indices;
+
+	// Actually create the buffer with the initial data
+	// - Once we do this, we'll NEVER CHANGE THE BUFFER AGAIN
+	device->CreateBuffer(&ibd, &initialIndexData, indexBuffer.GetAddressOf());
 
 }
-
 
 
 // --------------------------------------------------------
@@ -449,10 +229,6 @@ void Game::OnResize()
 {
 	// Handle base-level DX resize stuff
 	DXCore::OnResize();
-
-	// Update our projection matrix to match the new aspect ratio
-	if (camera)
-		camera->UpdateProjectionMatrix(this->width / (float)this->height);
 }
 
 // --------------------------------------------------------
@@ -460,148 +236,9 @@ void Game::OnResize()
 // --------------------------------------------------------
 void Game::Update(float deltaTime, float totalTime)
 {
-	Input& input = Input::GetInstance();
-
-	// Reset input manager's gui state so we don’t
-	// taint our own input (you’ll uncomment later)
-	input.SetGuiKeyboardCapture(false);
-	input.SetGuiMouseCapture(false);
-	
-	// Set io info
-	ImGuiIO& io = ImGui::GetIO();
-	io.DeltaTime = deltaTime;
-	io.DisplaySize.x = (float)this->width;
-	io.DisplaySize.y = (float)this->height;
-	io.KeyCtrl = input.KeyDown(VK_CONTROL);
-	io.KeyShift = input.KeyDown(VK_SHIFT);
-	io.KeyAlt = input.KeyDown(VK_MENU);
-	io.MousePos.x = (float)input.GetMouseX();
-	io.MousePos.y = (float)input.GetMouseY();
-	io.MouseDown[0] = input.MouseLeftDown();
-	io.MouseDown[1] = input.MouseRightDown();
-	io.MouseDown[2] = input.MouseMiddleDown();
-	io.MouseWheel = input.GetMouseWheel();
-	input.GetKeyArray(io.KeysDown, 256);
-
-	// Reset the frame
-	ImGui_ImplDX11_NewFrame();
-	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
-
-	// Determine new input capture (you’ll uncomment later)
-	input.SetGuiKeyboardCapture(io.WantCaptureKeyboard);
-	input.SetGuiMouseCapture(io.WantCaptureMouse);
-	
-	// Show the demo window
-	//ImGui::ShowDemoWindow();
-
-	// Show custom gui windows
-	{
-		// only add stuff if the window isn't collapsed
-		if (ImGui::Begin("Stats for nerds")) {
-			ImGui::Text("Framerate: %d", (int)io.Framerate);
-			ImGui::Text("Width: %d", width);
-			ImGui::SameLine(); ImGui::Text("Height: %d", height);
-			ImGui::Text("Aspect Ratio: %f", (float)width / (float)height);
-			ImGui::Text("Entity Count: %d", entities.size());
-			ImGui::SameLine(); ImGui::Text("Light Count: %d", lights.size());
-		}
-		ImGui::End();
-
-		if (ImGui::Begin("Game Elements")) {
-			if (ImGui::TreeNode("Camera")) {
-				Transform* transform = camera->GetTransform();
-
-				XMFLOAT3 pos = transform->GetPosition();
-				ImGui::Text("Position:");
-				ImGui::SameLine(); ImGui::DragFloat3("##pos_drag_camera", &pos.x, 0.1f);
-				transform->SetPosition(pos.x, pos.y, pos.z);
-
-				XMFLOAT3 rot = transform->GetPitchYawRoll();
-				ImGui::Text("Rotation:");
-				ImGui::SameLine(); ImGui::DragFloat2("##rot_drag_camera_", &rot.x, 0.01f);
-				transform->SetRotation(rot.x, rot.y, rot.z);
-
-				ImGui::TreePop();
-			}
-
-			if (ImGui::TreeNode("Entities")) {
-
-				for (int i = 0; i < entities.size(); i++) {
-					if (ImGui::TreeNode((void*)(intptr_t)(i+1), "Entity %d", i+1)) {
-						Transform* transform = entities[i].get()->GetTransform();
-
-						XMFLOAT3 pos = transform->GetPosition();
-						ImGui::Text("Position:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_entity_" + std::to_string(i+1)).c_str(), &pos.x, 0.1f);
-						transform->SetPosition(pos.x, pos.y, pos.z);
-
-						XMFLOAT3 rot = transform->GetPitchYawRoll();
-						ImGui::Text("Rotation:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##rot_drag_entity_" + std::to_string(i + 1)).c_str(), &rot.x, 0.1f);
-						transform->SetRotation(rot.x, rot.y, rot.z);
-
-						XMFLOAT3 scale = transform->GetScale();
-						ImGui::Text("Scale:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##sca_drag_entity_" + std::to_string(i + 1)).c_str(), &scale.x, 0.1f);
-						transform->SetScale(scale.x, scale.y, scale.z);
-
-						ImGui::TreePop();
-					}
-				}
-
-				ImGui::TreePop();
-			}
-
-			if (ImGui::TreeNode("Lights")) {
-
-				for (int i = 0; i < lights.size(); i++) {
-					if (ImGui::TreeNode((void*)(intptr_t)(i + 1), "Light %d", i + 1)) {
-						ImGui::Text("Type:");
-						ImGui::SameLine(); ImGui::Combo(("##type_combo_light_" + std::to_string(i + 1)).c_str(), &lights[i].Type, "Directional\0Point\0Spotlight\0\0");
-
-						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Position:");
-							ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Position.x, 0.1f);
-						}
-						
-						ImGui::Text("Direction:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##dir_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Direction.x, 0.1f);
-
-						ImGui::Text("Color:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##col_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Color.x, 0.01f, 0, 1);
-
-						ImGui::Text("Intensity:");
-						ImGui::SameLine(); ImGui::DragFloat(("##int_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Intensity, 0.1f, 0, INFINITE);
-
-						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Range:");
-							ImGui::SameLine(); ImGui::DragFloat(("##range_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Range, 0.1f, 0, INFINITE);
-						}
-
-						if (lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Spotlight Falloff:");
-							ImGui::SameLine(); ImGui::DragFloat(("##falloff_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].SpotFalloff, 0.1f, 0.1f, INFINITE);
-							ImGui::Text("(Make sure you set falloff and direction for spotlights)");
-						}
-
-						ImGui::TreePop();
-					}
-				}
-
-				ImGui::TreePop();
-			}
-		}
-		ImGui::End();
-	}
-
-
-	// Update the camera
-	camera->Update(deltaTime);
-
-	// Check individual input
-	if (input.KeyDown(VK_ESCAPE)) Quit();
-	if (input.KeyPress(VK_TAB)) GenerateLights();
+	// Example input checking: Quit if the escape key is pressed
+	if (Input::GetInstance().KeyDown(VK_ESCAPE))
+		Quit();
 }
 
 // --------------------------------------------------------
@@ -609,8 +246,8 @@ void Game::Update(float deltaTime, float totalTime)
 // --------------------------------------------------------
 void Game::Draw(float deltaTime, float totalTime)
 {
-	// Background color for clearing
-	const float color[4] = { 0, 0, 0, 1 };
+	// Background color (Cornflower Blue in this case) for clearing
+	const float color[4] = { 0.4f, 0.6f, 0.75f, 0.0f };
 
 	// Clear the render target and depth buffer (erases what's on the screen)
 	//  - Do this ONCE PER FRAME
@@ -623,131 +260,52 @@ void Game::Draw(float deltaTime, float totalTime)
 		0);
 
 
-	// Draw all of the entities
-	for (auto& ge : entities)
-	{
-		// Set the "per frame" data
-		// Note that this should literally be set once PER FRAME, before
-		// the draw loop, but we're currently setting it per entity since 
-		// we are just using whichever shader the current entity has.  
-		// Inefficient!!!
-		std::shared_ptr<SimplePixelShader> ps = ge->GetMaterial()->GetPixelShader();
-		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * lightCount);
-		ps->SetInt("lightCount", lightCount);
-		ps->SetFloat3("cameraPosition", camera->GetTransform()->GetPosition());
-		ps->CopyBufferData("perFrame");
+	// Set the vertex and pixel shaders to use for the next Draw() command
+	//  - These don't technically need to be set every frame
+	//  - Once you start applying different shaders to different objects,
+	//    you'll need to swap the current shaders before each draw
+	context->VSSetShader(vertexShader.Get(), 0, 0);
+	context->PSSetShader(pixelShader.Get(), 0, 0);
 
-		// Draw the entity
-		ge->Draw(context, camera);
-	}
 
-	// Draw the light sources
-	DrawPointLights();
+	// Ensure the pipeline knows how to interpret the data (numbers)
+	// from the vertex buffer.  
+	// - If all of your 3D models use the exact same vertex layout,
+	//    this could simply be done once in Init()
+	// - However, this isn't always the case (but might be for this course)
+	context->IASetInputLayout(inputLayout.Get());
 
-	// Draw the sky
-	sky->Draw(camera);
 
-	// Draw some UI
-	DrawUI();
+	// Set buffers in the input assembler
+	//  - Do this ONCE PER OBJECT you're drawing, since each object might
+	//    have different geometry.
+	//  - for this demo, this step *could* simply be done once during Init(),
+	//    but I'm doing it here because it's often done multiple times per frame
+	//    in a larger application/game
+	UINT stride = sizeof(Vertex);
+	UINT offset = 0;
+	context->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
+	context->IASetIndexBuffer(indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
 
-	// Draw ImGui
-	ImGui::Render();
-	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+	// Finally do the actual drawing
+	//  - Do this ONCE PER OBJECT you intend to draw
+	//  - This will use all of the currently set DirectX "stuff" (shaders, buffers, etc)
+	//  - DrawIndexed() uses the currently set INDEX BUFFER to look up corresponding
+	//     vertices in the currently set VERTEX BUFFER
+	context->DrawIndexed(
+		3,     // The number of indices to use (we could draw a subset if we wanted)
+		0,     // Offset to the first index we want to use
+		0);    // Offset to add to each index when looking up vertices
+
+
 
 	// Present the back buffer to the user
 	//  - Puts the final frame we're drawing into the window so the user can see it
 	//  - Do this exactly ONCE PER FRAME (always at the very end of the frame)
-	swapChain->Present(0, 0);
+	swapChain->Present(vsync ? 1 : 0, 0);
 
 	// Due to the usage of a more sophisticated swap chain,
 	// the render target must be re-bound after every call to Present()
 	context->OMSetRenderTargets(1, backBufferRTV.GetAddressOf(), depthStencilView.Get());
-}
-
-
-// --------------------------------------------------------
-// Draws the point lights as solid color spheres
-// --------------------------------------------------------
-void Game::DrawPointLights()
-{
-	// Turn on these shaders
-	lightVS->SetShader();
-	lightPS->SetShader();
-
-	// Set up vertex shader
-	lightVS->SetMatrix4x4("view", camera->GetView());
-	lightVS->SetMatrix4x4("projection", camera->GetProjection());
-
-	for (int i = 0; i < lightCount; i++)
-	{
-		Light light = lights[i];
-
-		// Only drawing points, so skip others
-		if (light.Type != LIGHT_TYPE_POINT)
-			continue;
-
-		// Calc quick scale based on range
-		float scale = light.Range / 20.0f;
-
-		// Make the transform for this light
-		XMMATRIX rotMat = XMMatrixIdentity();
-		XMMATRIX scaleMat = XMMatrixScaling(scale, scale, scale);
-		XMMATRIX transMat = XMMatrixTranslation(light.Position.x, light.Position.y, light.Position.z);
-		XMMATRIX worldMat = scaleMat * rotMat * transMat;
-
-		XMFLOAT4X4 world;
-		XMFLOAT4X4 worldInvTrans;
-		XMStoreFloat4x4(&world, worldMat);
-		XMStoreFloat4x4(&worldInvTrans, XMMatrixInverse(0, XMMatrixTranspose(worldMat)));
-
-		// Set up the world matrix for this light
-		lightVS->SetMatrix4x4("world", world);
-		lightVS->SetMatrix4x4("worldInverseTranspose", worldInvTrans);
-
-		// Set up the pixel shader data
-		XMFLOAT3 finalColor = light.Color;
-		finalColor.x *= light.Intensity;
-		finalColor.y *= light.Intensity;
-		finalColor.z *= light.Intensity;
-		lightPS->SetFloat3("Color", finalColor);
-
-		// Copy data
-		lightVS->CopyAllBufferData();
-		lightPS->CopyAllBufferData();
-
-		// Draw
-		lightMesh->SetBuffersAndDraw(context);
-	}
-
-}
-
-
-// --------------------------------------------------------
-// Draws a simple informational "UI" using sprite batch
-// --------------------------------------------------------
-void Game::DrawUI()
-{
-	spriteBatch->Begin();
-
-	// Basic controls
-	float h = 10.0f;
-	arial->DrawString(spriteBatch.get(), L"Controls:", XMVectorSet(10, h, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" (WASD, X, Space) Move camera", XMVectorSet(10, h + 20, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" (Left Click & Drag) Rotate camera", XMVectorSet(10, h + 40, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" (Left Shift) Hold to speed up camera", XMVectorSet(10, h + 60, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" (Left Ctrl) Hold to slow down camera", XMVectorSet(10, h + 80, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" (TAB) Randomize lights", XMVectorSet(10, h + 100, 0, 0));
-
-	// Current "scene" info
-	h = 150;
-	arial->DrawString(spriteBatch.get(), L"Scene Details:", XMVectorSet(10, h, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" Top: PBR materials", XMVectorSet(10, h + 20, 0, 0));
-	arial->DrawString(spriteBatch.get(), L" Bottom: Non-PBR materials", XMVectorSet(10, h + 40, 0, 0));
-
-	spriteBatch->End();
-
-	// Reset render states, since sprite batch changes these!
-	context->OMSetBlendState(0, 0, 0xFFFFFFFF);
-	context->OMSetDepthStencilState(0, 0);
-
 }

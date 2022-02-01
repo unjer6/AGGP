@@ -1,18 +1,8 @@
 #pragma once
 
 #include "DXCore.h"
-#include "Mesh.h"
-#include "GameEntity.h"
-#include "Camera.h"
-#include "SimpleShader.h"
-#include "SpriteFont.h"
-#include "SpriteBatch.h"
-#include "Lights.h"
-#include "Sky.h"
-
 #include <DirectXMath.h>
 #include <wrl/client.h> // Used for ComPtr - a smart pointer for COM objects
-#include <vector>
 
 class Game 
 	: public DXCore
@@ -31,36 +21,26 @@ public:
 
 private:
 
-	// Our scene
-	std::vector<std::shared_ptr<GameEntity>> entities;
-	std::shared_ptr<Camera> camera;
+	// Should we use vsync to limit the frame rate?
+	bool vsync;
 
-	// Lights
-	std::vector<Light> lights;
-	int lightCount;
+	// Initialization helper methods - feel free to customize, combine, etc.
+	void LoadShaders(); 
+	void CreateBasicGeometry();
 
-	// These will be loaded along with other assets and
-	// saved to these variables for ease of access
-	std::shared_ptr<Mesh> lightMesh;
-	std::shared_ptr<SimpleVertexShader> lightVS;
-	std::shared_ptr<SimplePixelShader> lightPS;
+	// Note the usage of ComPtr below
+	//  - This is a smart pointer for objects that abide by the
+	//    Component Object Model, which DirectX objects do
+	//  - More info here: https://github.com/Microsoft/DirectXTK/wiki/ComPtr
 
-	// Text & ui
-	std::shared_ptr<DirectX::SpriteFont> arial;
-	std::shared_ptr<DirectX::SpriteBatch> spriteBatch;
+	// Buffers to hold actual geometry data
+	Microsoft::WRL::ComPtr<ID3D11Buffer> vertexBuffer;
+	Microsoft::WRL::ComPtr<ID3D11Buffer> indexBuffer;
+	
+	// Shaders and shader-related constructs
+	Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
+	Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader;
+	Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout;
 
-	// Texture related resources
-	Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions;
-
-	// Skybox
-	std::shared_ptr<Sky> sky;
-
-	// General helpers for setup and drawing
-	void GenerateLights();
-	void DrawPointLights();
-	void DrawUI();
-
-	// Initialization helper method
-	void LoadAssetsAndCreateEntities();
 };
 

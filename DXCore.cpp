@@ -4,10 +4,6 @@
 #include <WindowsX.h>
 #include <sstream>
 
-#include "ImGUI/imgui.h"
-#include "ImGUI/imgui_impl_dx11.h"
-#include "ImGUI/imgui_impl_win32.h"
-
 // Define the static instance variable so our OS-level 
 // message handling function below can talk to our object
 DXCore* DXCore::DXCoreInstance = 0;
@@ -63,7 +59,7 @@ DXCore::DXCore(
 	this->totalTime = 0;
 
 	// Query performance counter for accurate timing information
-	__int64 perfFreq = 0;
+	__int64 perfFreq;
 	QueryPerformanceFrequency((LARGE_INTEGER*)&perfFreq);
 	perfCounterSeconds = 1.0 / (double)perfFreq;
 }
@@ -76,9 +72,9 @@ DXCore::~DXCore()
 	// Note: Since we're using smart pointers (ComPtr),
 	// we don't need to explicitly clean up those DirectX objects
 	// - If we weren't using smart pointers, we'd need
-	//   to call Release() on each DirectX object
+	//   to call Release() on each DirectX object created in DXCore
 
-	// Delete singletons
+	// Delete input manager singleton
 	delete& Input::GetInstance();
 }
 
@@ -324,7 +320,7 @@ void DXCore::OnResize()
 	}
 
 	// Set up the description of the texture to use for the depth buffer
-	D3D11_TEXTURE2D_DESC depthStencilDesc = {};
+	D3D11_TEXTURE2D_DESC depthStencilDesc;
 	depthStencilDesc.Width				= width;
 	depthStencilDesc.Height				= height;
 	depthStencilDesc.MipLevels			= 1;
@@ -379,7 +375,7 @@ HRESULT DXCore::Run()
 {
 	// Grab the start time now that
 	// the game loop is running
-	__int64 now = 0;
+	__int64 now;
 	QueryPerformanceCounter((LARGE_INTEGER*)&now);
 	startTime = now;
 	currentTime = now;
@@ -404,7 +400,7 @@ HRESULT DXCore::Run()
 		{
 			// Update timer and title bar (if necessary)
 			UpdateTimer();
-			if (titleBarStats)
+			if(titleBarStats)
 				UpdateTitleBarStats();
 
 			// Update the input manager
@@ -442,7 +438,7 @@ void DXCore::Quit()
 void DXCore::UpdateTimer()
 {
 	// Grab the current time
-	__int64 now = 0;
+	__int64 now;
 	QueryPerformanceCounter((LARGE_INTEGER*)&now);
 	currentTime = now;
 
@@ -526,7 +522,7 @@ void DXCore::CreateConsoleWindow(int bufferLines, int bufferColumns, int windowL
 	coninfo.dwSize.X = bufferColumns;
 	SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), coninfo.dwSize);
 
-	SMALL_RECT rect = {};
+	SMALL_RECT rect;
 	rect.Left = 0;
 	rect.Top = 0;
 	rect.Right = windowColumns;
@@ -549,7 +545,7 @@ void DXCore::CreateConsoleWindow(int bufferLines, int bufferColumns, int windowL
 //
 // - As it turns out, the relative path for a program is different when 
 //    running through VS and when running the .exe directly, which makes 
-//    it a pain to properly load files external files (like textures)
+//    it a pain to properly load external files (like textures)
 //    - Running through VS: Current Dir is the *project folder*
 //    - Running from .exe:  Current Dir is the .exe's folder
 // - This has nothing to do with DEBUG and RELEASE modes - it's purely a 
@@ -557,7 +553,7 @@ void DXCore::CreateConsoleWindow(int bufferLines, int bufferColumns, int windowL
 //    for it.  In fact, it could be fixed by changing a setting in VS, but
 //    the option is stored in a user file (.suo), which is ignored by most
 //    version control packages by default.  Meaning: the option must be
-//    changed every on every PC.  Ugh.  So instead, here's a helper.
+//    changed on every PC.  Ugh.  So instead, here's a helper.
 // --------------------------------------------------------------------------
 std::string DXCore::GetExePath()
 {
@@ -687,11 +683,6 @@ LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 	case WM_SETFOCUS:	hasFocus = true;	return 0;
 	case WM_KILLFOCUS:	hasFocus = false;	return 0;
 	case WM_ACTIVATE:	hasFocus = (LOWORD(wParam) != WA_INACTIVE); return 0;
-
-	// Has a key been pressed?
-	case WM_CHAR:
-		ImGui::GetIO().AddInputCharacter((char)wParam);
-		return 0;
 	}
 
 	// Let Windows handle any messages we're not touching
