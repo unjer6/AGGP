@@ -2,6 +2,7 @@
 #include "Vertex.h"
 #include "Input.h"
 #include "DX12Helper.h"
+#include "BufferStructs.h"
 
 // Needed for a helper function to read compiled shader files from the hard drive
 #pragma comment(lib, "d3dcompiler.lib")
@@ -33,8 +34,7 @@ Game::Game(HINSTANCE hInstance)
 	printf("Console window created successfully.  Feel free to printf() here.\n");
 #endif
 
-	ibView = {};
-	vbView = {};
+	camera = Camera((float)this->width / this->height);
 }
 
 // --------------------------------------------------------
@@ -87,34 +87,56 @@ void Game::CreateRootSigAndPipelineState()
 	}
 
 	// Input layout
-	const unsigned int inputElementCount = 2;
+	const unsigned int inputElementCount = 4;
 	D3D12_INPUT_ELEMENT_DESC inputElements[inputElementCount] = {};
 	{
-		// Create an input layout that describes the vertex format
-		// used by the vertex shader we're using
-		//  - This is used by the pipeline to know how to interpret the raw data
-		//     sitting inside a vertex buffer
-		// Set up the first element - a position, which is 3 float values
 		inputElements[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-		inputElements[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-		inputElements[0].SemanticName = "POSITION";
-		inputElements[0].SemanticIndex = 0;
-		// Set up the second element - a color, which is 4 more float values
+		inputElements[0].Format = DXGI_FORMAT_R32G32B32_FLOAT; // R32 G32 B32 = float3
+		inputElements[0].SemanticName = "POSITION";            // Name must match semantic in shader
+		inputElements[0].SemanticIndex = 0;                    // This is the first POSITION semantic
+
 		inputElements[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-		inputElements[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-		inputElements[1].SemanticName = "COLOR";
-		inputElements[1].SemanticIndex = 0;
+		inputElements[1].Format = DXGI_FORMAT_R32G32_FLOAT;    // R32 G32 = float2
+		inputElements[1].SemanticName = "TEXCOORD";
+		inputElements[1].SemanticIndex = 0;                    // This is the first TEXCOORD semantic
+
+		inputElements[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+		inputElements[2].Format = DXGI_FORMAT_R32G32B32_FLOAT; // R32 G32 B32 = float3
+		inputElements[2].SemanticName = "NORMAL";
+		inputElements[2].SemanticIndex = 0;                    // This is the first NORMAL semantic
+
+		inputElements[3].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+		inputElements[3].Format = DXGI_FORMAT_R32G32B32_FLOAT; // R32 G32 B32 = float3
+		inputElements[3].SemanticName = "TANGENT";
+		inputElements[3].SemanticIndex = 0;                    // This is the first TANGENT semantic
 	}
 
 	// Root Signature
 	{
-		// Describe and serialize the root signature
+		// Define a table of CBV's (constant buffer views)
+		D3D12_DESCRIPTOR_RANGE cbvTable = {};
+		cbvTable.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+		cbvTable.NumDescriptors = 1;
+		cbvTable.BaseShaderRegister = 0;
+		cbvTable.RegisterSpace = 0;
+		cbvTable.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+		// Define the root parameter
+		D3D12_ROOT_PARAMETER rootParam = {};
+		rootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		rootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+		rootParam.DescriptorTable.NumDescriptorRanges = 1;
+		rootParam.DescriptorTable.pDescriptorRanges = &cbvTable;
+
+		// Describe the overall the root signature
 		D3D12_ROOT_SIGNATURE_DESC rootSig = {};
 		rootSig.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-		rootSig.NumParameters = 0;
-		rootSig.pParameters = 0;
+		rootSig.NumParameters = 1;
+		rootSig.pParameters = &rootParam;
 		rootSig.NumStaticSamplers = 0;
 		rootSig.pStaticSamplers = 0;
+
+		// serialize
 		ID3DBlob* serializedRootSig = 0;
 		ID3DBlob* errors = 0;
 		D3D12SerializeRootSignature(
@@ -189,52 +211,21 @@ void Game::CreateRootSigAndPipelineState()
 // --------------------------------------------------------
 void Game::CreateBasicGeometry()
 {
-	// Create some temporary variables to represent colors
-	// - Not necessary, just makes things more readable
-	XMFLOAT4 red = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
-	XMFLOAT4 green = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);
-	XMFLOAT4 blue = XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f);
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/cube.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/cylinder.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/helix.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/quad.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/quad_double_sided.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/sphere.obj").c_str(), device));
+	meshes.push_back(Mesh(GetFullPathTo("../../Assets/Models/torus.obj").c_str(), device));
 
-	// Set up the vertices of the triangle we would like to draw
-	// - We're going to copy this array, exactly as it exists in memory
-	//    over to a DirectX-controlled data structure (the vertex buffer)
-	// - Note: Since we don't have a camera or really any concept of
-	//    a "3d world" yet, we're simply describing positions within the
-	//    bounds of how the rasterizer sees our screen: [-1 to +1] on X and Y
-	// - This means (0,0) is at the very center of the screen.
-	// - These are known as "Normalized Device Coordinates" or "Homogeneous 
-	//    Screen Coords", which are ways to describe a position without
-	//    knowing the exact size (in pixels) of the image/window/etc.  
-	// - Long story short: Resizing the window also resizes the triangle,
-	//    since we're describing the triangle in terms of the window itself
-	Vertex vertices[] =
-	{
-		{ XMFLOAT3(+0.0f, +0.5f, +0.0f), red },
-		{ XMFLOAT3(+0.5f, -0.5f, +0.0f), blue },
-		{ XMFLOAT3(-0.5f, -0.5f, +0.0f), green },
-	};
+	entities.push_back(GameEntity(&meshes[0]));	// cube
+	entities.push_back(GameEntity(&meshes[2]));	// helix
+	entities.push_back(GameEntity(&meshes[5]));	// sphere
 
-	// Set up the indices, which tell us which vertices to use and in which order
-	// - This is somewhat redundant for just 3 vertices (it's a simple example)
-	// - Indices are technically not required if the vertices are in the buffer 
-	//    in the correct order and each one will be used exactly once
-	// - But just to see how it's done...
-	unsigned int indices[] = { 0, 1, 2 };
-
-
-	// Create the two buffers
-	DX12Helper& dx12Helper = DX12Helper::GetInstance();
-	vertexBuffer = dx12Helper.CreateStaticBuffer(sizeof(Vertex), ARRAYSIZE(vertices), vertices);
-	indexBuffer = dx12Helper.CreateStaticBuffer(sizeof(unsigned int), ARRAYSIZE(indices), indices);
-
-	// Set up the views
-	vbView.StrideInBytes = sizeof(Vertex);
-	vbView.SizeInBytes = sizeof(Vertex) * ARRAYSIZE(vertices);
-	vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
-
-	ibView.Format = DXGI_FORMAT_R32_UINT;
-	ibView.SizeInBytes = sizeof(unsigned int) * ARRAYSIZE(indices);
-	ibView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
+	entities[0].GetTransform()->SetPosition(-3, 0, 0);
+	entities[1].GetTransform()->SetPosition(0, 0, 0);
+	entities[2].GetTransform()->SetPosition(3, 0, 0);
 }
 
 
@@ -246,6 +237,8 @@ void Game::OnResize()
 {
 	// Handle base-level DX resize stuff
 	DXCore::OnResize();
+
+	camera.SetAspectRatio((float)this->width / this->height);
 }
 
 // --------------------------------------------------------
@@ -256,6 +249,12 @@ void Game::Update(float deltaTime, float totalTime)
 	// Example input checking: Quit if the escape key is pressed
 	if (Input::GetInstance().KeyDown(VK_ESCAPE))
 		Quit();
+
+	camera.Update(deltaTime);
+
+	for (auto& entity : entities) {
+		entity.GetTransform()->Rotate(0, deltaTime * DirectX::XM_PIDIV4, 0);
+	}
 }
 
 // --------------------------------------------------------
@@ -263,6 +262,8 @@ void Game::Update(float deltaTime, float totalTime)
 // --------------------------------------------------------
 void Game::Draw(float deltaTime, float totalTime)
 {
+	DX12Helper& dx12Helper = DX12Helper::GetInstance();
+
 	// Grab the current back buffer for this frame
 	Microsoft::WRL::ComPtr<ID3D12Resource> currentBackBuffer = backBuffers[currentSwapBuffer];
 
@@ -308,12 +309,26 @@ void Game::Draw(float deltaTime, float totalTime)
 		commandList->OMSetRenderTargets(1, &rtvHandles[currentSwapBuffer], true, &dsvHandle);
 		commandList->RSSetViewports(1, &viewport);
 		commandList->RSSetScissorRects(1, &scissorRect);
-		commandList->IASetVertexBuffers(0, 1, &vbView);
-		commandList->IASetIndexBuffer(&ibView);
 		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptorHeap = dx12Helper.GetCBVSRVDescriptorHeap();
+		commandList->SetDescriptorHeaps(1, descriptorHeap.GetAddressOf());
+
 		// Draw
-		commandList->DrawIndexedInstanced(3, 1, 0, 0, 0);
+		VertexBufferExternalData data = {};
+		data.view = camera.GetViewMatrix();
+		data.projection = camera.GetProjectionMatrix();
+		for (auto entity : entities) {
+			data.world = entity.GetTransform()->GetWorldMatrix();
+
+			D3D12_GPU_DESCRIPTOR_HANDLE handle = dx12Helper.FillNextConstantBufferAndGetGPUDescriptorHandle(&data, sizeof(VertexBufferExternalData));
+			commandList->SetGraphicsRootDescriptorTable(0, handle);
+
+			commandList->IASetVertexBuffers(0, 1, entity.GetMesh()->GetVertexBufferView());
+			commandList->IASetIndexBuffer(entity.GetMesh()->GetIndexBufferView());
+
+			commandList->DrawIndexedInstanced(entity.GetMesh()->GetIndexCount(), 1, 0, 0, 0);
+		}
 	}
 
 	// Present
@@ -329,7 +344,7 @@ void Game::Draw(float deltaTime, float totalTime)
 		commandList->ResourceBarrier(1, &rb);
 
 		// Must occur BEFORE present
-		DX12Helper::GetInstance().CloseExecuteAndResetCommandList();
+		dx12Helper.CloseExecuteAndResetCommandList();
 
 		// Present the current back buffer
 		swapChain->Present(vsync ? 1 : 0, 0);
