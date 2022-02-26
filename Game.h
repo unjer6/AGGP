@@ -7,6 +7,7 @@
 #include <vector>
 #include <DirectXMath.h>
 #include <wrl/client.h> // Used for ComPtr - a smart pointer for COM objects
+#include "BufferStructs.h"
 
 class Game 
 	: public DXCore
@@ -29,6 +30,7 @@ private:
 	bool vsync;
 
 	void CreateRootSigAndPipelineState();
+	void CreateMaterials();
 	void CreateBasicGeometry();
 
 	// Note the usage of ComPtr below
@@ -40,8 +42,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState;
 
 	Camera camera;
-
+	
 	std::vector<GameEntity> entities;
 	std::vector<Mesh> meshes;
+	std::vector<Material> materials;
+	std::vector<Light> lights;
 };
 

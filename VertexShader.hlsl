@@ -19,7 +19,11 @@ struct VertexShaderInput
 // - Each variable must have a semantic, which defines its usage
 struct VertexToPixel
 {
-	float4 position	: SV_POSITION;	// XYZW position (System Value Position)
+	float3 worldPos : POSITION;
+	float4 position	: SV_POSITION;
+	float2 uv		: TEXCOORD;
+	float3 normal	: NORMAL;
+	float3 tangent  : TANGENT;
 };
 
 cbuffer ExternalData : register(b0)
@@ -27,6 +31,7 @@ cbuffer ExternalData : register(b0)
 	matrix world;
 	matrix view;
 	matrix projection;
+	matrix worldInverseTranspose;
 }
 
 // --------------------------------------------------------
@@ -41,8 +46,12 @@ VertexToPixel main( VertexShaderInput input )
 	// Set up output struct
 	VertexToPixel output;
 
+	output.worldPos = mul(world, float4(input.position, 1.0f));
 	matrix wvp = mul(projection, mul(view, world));
 	output.position = mul(wvp, float4(input.position, 1.0f));
+	output.uv = input.uv;
+	output.normal = mul(worldInverseTranspose, float4(input.normal, 1.0f));
+	output.tangent = mul(world, float4(input.tangent, 1.0f));
 
 	// Whatever we return will make its way through the pipeline to the
 	// next programmable stage we're using (the pixel shader for now)
