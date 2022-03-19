@@ -93,7 +93,7 @@ void Game::Init()
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	// Set up lights initially
-	lightCount = 64;
+	lightCount = 0;
 	GenerateLights();
 
 	// Make our camera
@@ -131,6 +131,11 @@ void Game::LoadAssetsAndCreateEntities()
 	
 	std::shared_ptr<SimpleVertexShader> skyVS = LoadShader(SimpleVertexShader, L"SkyVS.cso");
 	std::shared_ptr<SimplePixelShader> skyPS  = LoadShader(SimplePixelShader, L"SkyPS.cso");
+	
+	std::shared_ptr<SimpleVertexShader> fullscreenVS = LoadShader(SimpleVertexShader, L"FullscreenVS.cso");
+	std::shared_ptr<SimplePixelShader> IBLIrradianceMapPS = LoadShader(SimplePixelShader, L"IBLIrradianceMapPS.cso");
+	std::shared_ptr<SimplePixelShader> IBLSpecularConvolutionPS = LoadShader(SimplePixelShader, L"IBLSpecularConvolutionPS.cso");
+	std::shared_ptr<SimplePixelShader> IBLBrdfLookUpTablePS = LoadShader(SimplePixelShader, L"IBLBrdfLookUpTablePS.cso");
 
 	// Set up the sprite batch and load the sprite font
 	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
@@ -197,6 +202,17 @@ void Game::LoadAssetsAndCreateEntities()
 	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 	device->CreateSamplerState(&sampDesc, samplerOptions.GetAddressOf());
 
+	// Describe and create our clamp sampler state
+	Microsoft::WRL::ComPtr<ID3D11SamplerState> clampSampler;
+	sampDesc = {};
+	sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+	sampDesc.MaxAnisotropy = 16;
+	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+	device->CreateSamplerState(&sampDesc, clampSampler.GetAddressOf());
+
 
 	// Create the sky using 6 images
 	sky = std::make_shared<Sky>(
@@ -209,6 +225,10 @@ void Game::LoadAssetsAndCreateEntities()
 		cubeMesh,
 		skyVS,
 		skyPS,
+		fullscreenVS,
+		IBLIrradianceMapPS,
+		IBLSpecularConvolutionPS,
+		IBLBrdfLookUpTablePS,
 		samplerOptions,
 		device,
 		context);
@@ -216,48 +236,56 @@ void Game::LoadAssetsAndCreateEntities()
 	// Create non-PBR materials
 	std::shared_ptr<Material> cobbleMat2x = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	cobbleMat2x->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat2x->AddSampler("ClampSampler", clampSampler);
 	cobbleMat2x->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat2x->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat2x->AddTextureSRV("RoughnessMap", cobbleR);
 
 	std::shared_ptr<Material> cobbleMat4x = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(4, 4));
 	cobbleMat4x->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat4x->AddSampler("ClampSampler", clampSampler);
 	cobbleMat4x->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat4x->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat4x->AddTextureSRV("RoughnessMap", cobbleR);
 
 	std::shared_ptr<Material> floorMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	floorMat->AddSampler("BasicSampler", samplerOptions);
+	floorMat->AddSampler("ClampSampler", clampSampler);
 	floorMat->AddTextureSRV("Albedo", floorA);
 	floorMat->AddTextureSRV("NormalMap", floorN);
 	floorMat->AddTextureSRV("RoughnessMap", floorR);
 
 	std::shared_ptr<Material> paintMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	paintMat->AddSampler("BasicSampler", samplerOptions);
+	paintMat->AddSampler("ClampSampler", clampSampler);
 	paintMat->AddTextureSRV("Albedo", paintA);
 	paintMat->AddTextureSRV("NormalMap", paintN);
 	paintMat->AddTextureSRV("RoughnessMap", paintR);
 
 	std::shared_ptr<Material> scratchedMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	scratchedMat->AddSampler("BasicSampler", samplerOptions);
+	scratchedMat->AddSampler("ClampSampler", clampSampler);
 	scratchedMat->AddTextureSRV("Albedo", scratchedA);
 	scratchedMat->AddTextureSRV("NormalMap", scratchedN);
 	scratchedMat->AddTextureSRV("RoughnessMap", scratchedR);
 
 	std::shared_ptr<Material> bronzeMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	bronzeMat->AddSampler("BasicSampler", samplerOptions);
+	bronzeMat->AddSampler("ClampSampler", clampSampler);
 	bronzeMat->AddTextureSRV("Albedo", bronzeA);
 	bronzeMat->AddTextureSRV("NormalMap", bronzeN);
 	bronzeMat->AddTextureSRV("RoughnessMap", bronzeR);
 
 	std::shared_ptr<Material> roughMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	roughMat->AddSampler("BasicSampler", samplerOptions);
+	roughMat->AddSampler("ClampSampler", clampSampler);
 	roughMat->AddTextureSRV("Albedo", roughA);
 	roughMat->AddTextureSRV("NormalMap", roughN);
 	roughMat->AddTextureSRV("RoughnessMap", roughR);
 
 	std::shared_ptr<Material> woodMat = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	woodMat->AddSampler("BasicSampler", samplerOptions);
+	woodMat->AddSampler("ClampSampler", clampSampler);
 	woodMat->AddTextureSRV("Albedo", woodA);
 	woodMat->AddTextureSRV("NormalMap", woodN);
 	woodMat->AddTextureSRV("RoughnessMap", woodR);
@@ -266,6 +294,7 @@ void Game::LoadAssetsAndCreateEntities()
 	// Create PBR materials
 	std::shared_ptr<Material> cobbleMat2xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	cobbleMat2xPBR->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat2xPBR->AddSampler("ClampSampler", clampSampler);
 	cobbleMat2xPBR->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat2xPBR->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat2xPBR->AddTextureSRV("RoughnessMap", cobbleR);
@@ -273,6 +302,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> cobbleMat4xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(4, 4));
 	cobbleMat4xPBR->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat4xPBR->AddSampler("ClampSampler", clampSampler);
 	cobbleMat4xPBR->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat4xPBR->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat4xPBR->AddTextureSRV("RoughnessMap", cobbleR);
@@ -280,6 +310,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> floorMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	floorMatPBR->AddSampler("BasicSampler", samplerOptions);
+	floorMatPBR->AddSampler("ClampSampler", clampSampler);
 	floorMatPBR->AddTextureSRV("Albedo", floorA);
 	floorMatPBR->AddTextureSRV("NormalMap", floorN);
 	floorMatPBR->AddTextureSRV("RoughnessMap", floorR);
@@ -287,6 +318,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> paintMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	paintMatPBR->AddSampler("BasicSampler", samplerOptions);
+	paintMatPBR->AddSampler("ClampSampler", clampSampler);
 	paintMatPBR->AddTextureSRV("Albedo", paintA);
 	paintMatPBR->AddTextureSRV("NormalMap", paintN);
 	paintMatPBR->AddTextureSRV("RoughnessMap", paintR);
@@ -294,6 +326,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> scratchedMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	scratchedMatPBR->AddSampler("BasicSampler", samplerOptions);
+	scratchedMatPBR->AddSampler("ClampSampler", clampSampler);
 	scratchedMatPBR->AddTextureSRV("Albedo", scratchedA);
 	scratchedMatPBR->AddTextureSRV("NormalMap", scratchedN);
 	scratchedMatPBR->AddTextureSRV("RoughnessMap", scratchedR);
@@ -301,6 +334,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> bronzeMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	bronzeMatPBR->AddSampler("BasicSampler", samplerOptions);
+	bronzeMatPBR->AddSampler("ClampSampler", clampSampler);
 	bronzeMatPBR->AddTextureSRV("Albedo", bronzeA);
 	bronzeMatPBR->AddTextureSRV("NormalMap", bronzeN);
 	bronzeMatPBR->AddTextureSRV("RoughnessMap", bronzeR);
@@ -308,6 +342,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> roughMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	roughMatPBR->AddSampler("BasicSampler", samplerOptions);
+	roughMatPBR->AddSampler("ClampSampler", clampSampler);
 	roughMatPBR->AddTextureSRV("Albedo", roughA);
 	roughMatPBR->AddTextureSRV("NormalMap", roughN);
 	roughMatPBR->AddTextureSRV("RoughnessMap", roughR);
@@ -315,6 +350,7 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<Material> woodMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	woodMatPBR->AddSampler("BasicSampler", samplerOptions);
+	woodMatPBR->AddSampler("ClampSampler", clampSampler);
 	woodMatPBR->AddTextureSRV("Albedo", woodA);
 	woodMatPBR->AddTextureSRV("NormalMap", woodN);
 	woodMatPBR->AddTextureSRV("RoughnessMap", woodR);
@@ -635,7 +671,12 @@ void Game::Draw(float deltaTime, float totalTime)
 		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * lightCount);
 		ps->SetInt("lightCount", lightCount);
 		ps->SetFloat3("cameraPosition", camera->GetTransform()->GetPosition());
+		ps->SetInt("SpecIBLTotalMipLevels", sky->GetIBLMipLevels());
 		ps->CopyBufferData("perFrame");
+
+		ps->SetShaderResourceView("BrdfLookUpMap", sky->GetLookUpTable());
+		ps->SetShaderResourceView("IrradianceIBLMap", sky->GetIrradianceMap());
+		ps->SetShaderResourceView("SpecularIBLMap", sky->GetSpecularMap());
 
 		// Draw the entity
 		ge->Draw(context, camera);

@@ -34,6 +34,10 @@ public:
 		std::shared_ptr<Mesh> mesh,
 		std::shared_ptr<SimpleVertexShader> skyVS,
 		std::shared_ptr<SimplePixelShader> skyPS,
+		std::shared_ptr<SimpleVertexShader> fullscreenVS,
+		std::shared_ptr<SimplePixelShader> IBLIrradianceMapPS,
+		std::shared_ptr<SimplePixelShader> IBLSpecularConvolutionPS,
+		std::shared_ptr<SimplePixelShader> IBLBrdfLookUpTablePS,
 		Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions,
 		Microsoft::WRL::ComPtr<ID3D11Device> device,
 		Microsoft::WRL::ComPtr<ID3D11DeviceContext> context
@@ -42,6 +46,11 @@ public:
 	~Sky();
 
 	void Draw(std::shared_ptr<Camera> camera);
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetIrradianceMap();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSpecularMap();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetLookUpTable();
+	int GetIBLMipLevels();
 
 private:
 
@@ -69,5 +78,23 @@ private:
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions;
 	Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
 	Microsoft::WRL::ComPtr<ID3D11Device> device;
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> irradianceMapIBL;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> specularMapIBL;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> brdfLookUpTableIBL;
+	int specularMipLevels;
+	const int numSkippedMipLevels = 3;
+	const int cubeFaceSize = 512;
+	const int lookUpSize = 512;
+
+	void IBLCreateIrradianceMap(
+		std::shared_ptr<SimpleVertexShader> fullscreenVS,
+		std::shared_ptr<SimplePixelShader> IBLIrradianceMapPS);
+	void IBLCreateConvolvedSpecularMap(
+		std::shared_ptr<SimpleVertexShader> fullscreenVS,
+		std::shared_ptr<SimplePixelShader> IBLSpecularConvolutionPS);
+	void IBLCreateBRDFLookUpTexture(
+		std::shared_ptr<SimpleVertexShader> fullscreenVS,
+		std::shared_ptr<SimplePixelShader> IBLBrdfLookUpTablePS);
 };
 
