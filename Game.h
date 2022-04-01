@@ -9,6 +9,7 @@
 #include "SpriteBatch.h"
 #include "Lights.h"
 #include "Sky.h"
+#include "Renderer.h"
 
 #include <DirectXMath.h>
 #include <wrl/client.h> // Used for ComPtr - a smart pointer for COM objects
@@ -30,6 +31,8 @@ public:
 	void Draw(float deltaTime, float totalTime);
 
 private:
+	// Renderer
+	std::shared_ptr<Renderer> renderer;
 
 	// Our scene
 	std::vector<std::shared_ptr<GameEntity>> entities;
@@ -57,8 +60,6 @@ private:
 
 	// General helpers for setup and drawing
 	void GenerateLights();
-	void DrawPointLights();
-	void DrawUI();
 
 	// Initialization helper method
 	void LoadAssetsAndCreateEntities();
