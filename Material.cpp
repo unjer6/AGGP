@@ -5,13 +5,15 @@ Material::Material(
 	std::shared_ptr<SimpleVertexShader> vs,
 	DirectX::XMFLOAT3 tint,
 	DirectX::XMFLOAT2 uvScale,
-	DirectX::XMFLOAT2 uvOffset)
+	DirectX::XMFLOAT2 uvOffset,
+	bool isRefractive)
 	:
 	ps(ps),
 	vs(vs),
 	colorTint(tint),
 	uvScale(uvScale),
-	uvOffset(uvOffset)
+	uvOffset(uvOffset),
+	isRefractive(isRefractive)
 {
 
 }
@@ -22,6 +24,11 @@ std::shared_ptr<SimpleVertexShader> Material::GetVertexShader() { return vs; }
 DirectX::XMFLOAT2 Material::GetUVScale() { return uvScale; }
 DirectX::XMFLOAT2 Material::GetUVOffset() { return uvOffset; }
 DirectX::XMFLOAT3 Material::GetColorTint() { return colorTint; }
+
+bool Material::GetRefractive()
+{
+	return isRefractive;
+}
 
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Material::GetTextureSRV(std::string name)
 {
@@ -55,6 +62,11 @@ void Material::SetVertexShader(std::shared_ptr<SimpleVertexShader> vs) { this->v
 void Material::SetUVScale(DirectX::XMFLOAT2 scale) { uvScale = scale; }
 void Material::SetUVOffset(DirectX::XMFLOAT2 offset) { uvOffset = offset; }
 void Material::SetColorTint(DirectX::XMFLOAT3 tint) { this->colorTint = tint; }
+
+void Material::SetRefractive(bool isRefractive)
+{
+	this->isRefractive = isRefractive;
+}
 
 
 void Material::AddTextureSRV(std::string name, Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv)

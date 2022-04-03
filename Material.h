@@ -18,13 +18,16 @@ public:
 		std::shared_ptr<SimpleVertexShader> vs,
 		DirectX::XMFLOAT3 tint = DirectX::XMFLOAT3(1, 1, 1),
 		DirectX::XMFLOAT2 uvScale = DirectX::XMFLOAT2(1, 1),
-		DirectX::XMFLOAT2 uvOffset = DirectX::XMFLOAT2(0, 0));
+		DirectX::XMFLOAT2 uvOffset = DirectX::XMFLOAT2(0, 0),
+		bool isRefractive = false);
 
 	std::shared_ptr<SimplePixelShader> GetPixelShader();
 	std::shared_ptr<SimpleVertexShader> GetVertexShader();
 	DirectX::XMFLOAT2 GetUVScale();
 	DirectX::XMFLOAT2 GetUVOffset();
 	DirectX::XMFLOAT3 GetColorTint();
+	bool GetRefractive();
+
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetTextureSRV(std::string name);
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> GetSampler(std::string name);
 
@@ -33,6 +36,7 @@ public:
 	void SetUVScale(DirectX::XMFLOAT2 scale);
 	void SetUVOffset(DirectX::XMFLOAT2 offset);
 	void SetColorTint(DirectX::XMFLOAT3 tint);
+	void SetRefractive(bool isRefractive);
 
 	void AddTextureSRV(std::string name, Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv);
 	void AddSampler(std::string name, Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler);
@@ -50,6 +54,7 @@ private:
 
 	// Material properties
 	DirectX::XMFLOAT3 colorTint;
+	bool isRefractive;
 
 	// Texture-related
 	DirectX::XMFLOAT2 uvOffset;

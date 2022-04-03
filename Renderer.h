@@ -28,26 +28,12 @@ public:
 		std::shared_ptr<SimpleVertexShader> lightVS,
 		std::shared_ptr<SimplePixelShader> lightPS,
 		std::shared_ptr<DirectX::SpriteBatch> spriteBatch,
-		std::shared_ptr<DirectX::SpriteFont> arial)
-		: entities(entities)
-		, lights(lights)
-	{
-		this->device = device;
-		this->context = context;
-		this->swapChain = swapChain;
-		this->backBufferRTV = backBufferRTV;
-		this->depthBufferDSV = depthBufferDSV;
-		this->windowWidth = windowWidth;
-		this->windowHeight = windowHeight;
-		this->sky = sky;
-		this->lightMesh = lightMesh;
-		this->lightVS = lightVS;
-		this->lightPS = lightPS;
-		this->spriteBatch = spriteBatch;
-		this->arial = arial;
-	}
+		std::shared_ptr<DirectX::SpriteFont> arial,
+		std::shared_ptr<SimpleVertexShader> fullScreenVS,
+		std::shared_ptr<SimplePixelShader> texturePS,
+		Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler);
 
-	~Renderer() {}
+	~Renderer();
 
 	void PreResize();
 	void PostResize(
@@ -57,9 +43,23 @@ public:
 		Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depthBufferDSV);
 
 	void Render(std::shared_ptr<Camera> camera);
+
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> GetSceneColorRTV();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneColorSRV();
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> GetSceneNormalsRTV();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneNormalsSRV();
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> GetSceneDepthRTV();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneDepthSRV();
 private:
 	void DrawPointLights(std::shared_ptr<Camera> camera);
 	void DrawUI();
+
+	void CreateRenderTarget(
+		unsigned int width,
+		unsigned int height,
+		Microsoft::WRL::ComPtr<ID3D11RenderTargetView>& rtv,
+		Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>& srv,
+		DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
 	Microsoft::WRL::ComPtr<ID3D11Device> device;
 	Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
@@ -81,5 +81,20 @@ private:
 
 	std::shared_ptr<DirectX::SpriteBatch> spriteBatch;
 	std::shared_ptr<DirectX::SpriteFont> arial;
+
+	// Render Targets for refraction (this could also be a vector or map)
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> sceneColorRTV;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneColorSRV;
+
+	// Extra render targets just for the fun of it (displayed in ImGui)
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> sceneNormalsRTV;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneNormalsSRV;
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> sceneDepthRTV;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneDepthSRV;
+
+	// material information for a fullscreen texture copy
+	std::shared_ptr<SimpleVertexShader> fullScreenVS;
+	std::shared_ptr<SimplePixelShader> texturePS;
+	Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler;
 };
 

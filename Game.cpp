@@ -104,24 +104,6 @@ void Game::Init()
 		1.0f,		// Mouse look
 		this->width / (float)this->height); // Aspect ratio
 
-	// Make the renderer
-	renderer = std::make_shared<Renderer>(
-		device,
-		context,
-		swapChain,
-		backBufferRTV,
-		depthStencilView,
-		width,
-		height,
-		sky,
-		entities,
-		lights,
-		lightMesh,
-		lightVS,
-		lightPS,
-		spriteBatch,
-		arial);
-
 	// Initialize ImGui
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -152,9 +134,12 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<SimplePixelShader> skyPS  = LoadShader(SimplePixelShader, L"SkyPS.cso");
 	
 	std::shared_ptr<SimpleVertexShader> fullscreenVS = LoadShader(SimpleVertexShader, L"FullscreenVS.cso");
+	std::shared_ptr<SimplePixelShader> simpleTexturePS = LoadShader(SimplePixelShader, L"SimpleTexturePS.cso");
 	std::shared_ptr<SimplePixelShader> IBLIrradianceMapPS = LoadShader(SimplePixelShader, L"IBLIrradianceMapPS.cso");
 	std::shared_ptr<SimplePixelShader> IBLSpecularConvolutionPS = LoadShader(SimplePixelShader, L"IBLSpecularConvolutionPS.cso");
 	std::shared_ptr<SimplePixelShader> IBLBrdfLookUpTablePS = LoadShader(SimplePixelShader, L"IBLBrdfLookUpTablePS.cso");
+
+	std::shared_ptr<SimplePixelShader> RefractionPS = LoadShader(SimplePixelShader, L"RefractionPS.cso");
 
 	// Set up the sprite batch and load the sprite font
 	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
@@ -375,7 +360,14 @@ void Game::LoadAssetsAndCreateEntities()
 	woodMatPBR->AddTextureSRV("RoughnessMap", woodR);
 	woodMatPBR->AddTextureSRV("MetalMap", woodM);
 
-
+	// Create Refractive Material
+	std::shared_ptr<Material> cobbleMat2xRefract = std::make_shared<Material>(RefractionPS, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2), XMFLOAT2(0, 0), true);
+	cobbleMat2xRefract->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat2xRefract->AddSampler("ClampSampler", clampSampler);
+	cobbleMat2xRefract->AddTextureSRV("Albedo", cobbleA);
+	cobbleMat2xRefract->AddTextureSRV("NormalMap", cobbleN);
+	cobbleMat2xRefract->AddTextureSRV("RoughnessMap", cobbleR);
+	cobbleMat2xRefract->AddTextureSRV("MetalMap", cobbleM);
 
 	// === Create the PBR entities =====================================
 	std::shared_ptr<GameEntity> cobSpherePBR = std::make_shared<GameEntity>(sphereMesh, cobbleMat2xPBR);
@@ -387,7 +379,7 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<GameEntity> paintSpherePBR = std::make_shared<GameEntity>(sphereMesh, paintMatPBR);
 	paintSpherePBR->GetTransform()->SetPosition(-2, 2, 0);
 
-	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, scratchedMatPBR);
+	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, cobbleMat2xRefract);
 	scratchSpherePBR->GetTransform()->SetPosition(0, 2, 0);
 
 	std::shared_ptr<GameEntity> bronzeSpherePBR = std::make_shared<GameEntity>(sphereMesh, bronzeMatPBR);
@@ -442,6 +434,28 @@ void Game::LoadAssetsAndCreateEntities()
 	lightMesh = sphereMesh;
 	lightVS = vertexShader;
 	lightPS = solidColorPS;
+
+
+	// Make the renderer
+	renderer = std::make_shared<Renderer>(
+		device,
+		context,
+		swapChain,
+		backBufferRTV,
+		depthStencilView,
+		width,
+		height,
+		sky,
+		entities,
+		lights,
+		lightMesh,
+		lightVS,
+		lightPS,
+		spriteBatch,
+		arial,
+		fullscreenVS,
+		simpleTexturePS,
+		samplerOptions);
 }
 
 
@@ -565,89 +579,16 @@ void Game::Update(float deltaTime, float totalTime)
 		}
 		ImGui::End();
 
-		if (ImGui::Begin("Game Elements")) {
-			if (ImGui::TreeNode("Camera")) {
-				Transform* transform = camera->GetTransform();
+		if (ImGui::Begin("Render Targets")) {
+			ImVec2 size = ImGui::GetItemRectSize();
+			size.y = size.x * ((float)height / width);
 
-				XMFLOAT3 pos = transform->GetPosition();
-				ImGui::Text("Position:");
-				ImGui::SameLine(); ImGui::DragFloat3("##pos_drag_camera", &pos.x, 0.1f);
-				transform->SetPosition(pos.x, pos.y, pos.z);
-
-				XMFLOAT3 rot = transform->GetPitchYawRoll();
-				ImGui::Text("Rotation:");
-				ImGui::SameLine(); ImGui::DragFloat2("##rot_drag_camera_", &rot.x, 0.01f);
-				transform->SetRotation(rot.x, rot.y, rot.z);
-
-				ImGui::TreePop();
-			}
-
-			if (ImGui::TreeNode("Entities")) {
-
-				for (int i = 0; i < entities.size(); i++) {
-					if (ImGui::TreeNode((void*)(intptr_t)(i+1), "Entity %d", i+1)) {
-						Transform* transform = entities[i].get()->GetTransform();
-
-						XMFLOAT3 pos = transform->GetPosition();
-						ImGui::Text("Position:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_entity_" + std::to_string(i+1)).c_str(), &pos.x, 0.1f);
-						transform->SetPosition(pos.x, pos.y, pos.z);
-
-						XMFLOAT3 rot = transform->GetPitchYawRoll();
-						ImGui::Text("Rotation:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##rot_drag_entity_" + std::to_string(i + 1)).c_str(), &rot.x, 0.1f);
-						transform->SetRotation(rot.x, rot.y, rot.z);
-
-						XMFLOAT3 scale = transform->GetScale();
-						ImGui::Text("Scale:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##sca_drag_entity_" + std::to_string(i + 1)).c_str(), &scale.x, 0.1f);
-						transform->SetScale(scale.x, scale.y, scale.z);
-
-						ImGui::TreePop();
-					}
-				}
-
-				ImGui::TreePop();
-			}
-
-			if (ImGui::TreeNode("Lights")) {
-
-				for (int i = 0; i < lights.size(); i++) {
-					if (ImGui::TreeNode((void*)(intptr_t)(i + 1), "Light %d", i + 1)) {
-						ImGui::Text("Type:");
-						ImGui::SameLine(); ImGui::Combo(("##type_combo_light_" + std::to_string(i + 1)).c_str(), &lights[i].Type, "Directional\0Point\0Spotlight\0\0");
-
-						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Position:");
-							ImGui::SameLine(); ImGui::DragFloat3(("##pos_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Position.x, 0.1f);
-						}
-						
-						ImGui::Text("Direction:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##dir_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Direction.x, 0.1f);
-
-						ImGui::Text("Color:");
-						ImGui::SameLine(); ImGui::DragFloat3(("##col_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Color.x, 0.01f, 0, 1);
-
-						ImGui::Text("Intensity:");
-						ImGui::SameLine(); ImGui::DragFloat(("##int_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Intensity, 0.1f, 0, INFINITE);
-
-						if (lights[i].Type == LIGHT_TYPE_POINT || lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Range:");
-							ImGui::SameLine(); ImGui::DragFloat(("##range_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].Range, 0.1f, 0, INFINITE);
-						}
-
-						if (lights[i].Type == LIGHT_TYPE_SPOT) {
-							ImGui::Text("Spotlight Falloff:");
-							ImGui::SameLine(); ImGui::DragFloat(("##falloff_drag_light_" + std::to_string(i + 1)).c_str(), &lights[i].SpotFalloff, 0.1f, 0.1f, INFINITE);
-							ImGui::Text("(Make sure you set falloff and direction for spotlights)");
-						}
-
-						ImGui::TreePop();
-					}
-				}
-
-				ImGui::TreePop();
-			}
+			ImGui::Text("Scene Color:");
+			ImGui::Image(renderer->GetSceneColorSRV().Get(), size);
+			ImGui::Text("Scene Normals:");
+			ImGui::Image(renderer->GetSceneNormalsSRV().Get(), size);
+			ImGui::Text("Scene Depth:");
+			ImGui::Image(renderer->GetSceneDepthSRV().Get(), size);
 		}
 		ImGui::End();
 	}

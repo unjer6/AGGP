@@ -47,9 +47,15 @@ Texture2D NormalMap			: register(t1);
 Texture2D RoughnessMap		: register(t2);
 SamplerState BasicSampler		: register(s0);
 
+struct PS_Output
+{
+	float4 color		: SV_TARGET0;
+	float4 normals		: SV_TARGET1;
+	float  depth		 : SV_TARGET2;
+};
 
 // Entry point for this pixel shader
-float4 main(VertexToPixel input) : SV_TARGET
+PS_Output main(VertexToPixel input)
 {
 	// Always re-normalize interpolated direction vectors
 	input.normal = normalize(input.normal);
@@ -93,5 +99,10 @@ float4 main(VertexToPixel input) : SV_TARGET
 	}
 
 	// Gamma correction
-	return float4(pow(totalColor, 1.0f / 2.2f), 1);
+	PS_Output output;
+	output.color = float4(pow(totalColor, 1.0f / 2.2f), 1); // Gamma correction
+	output.normals = float4(input.normal * 0.5f + 0.5f, 1);
+	output.depth = input.screenPosition.z;
+
+	return output;
 }
