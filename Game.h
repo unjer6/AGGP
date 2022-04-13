@@ -10,6 +10,7 @@
 #include "Lights.h"
 #include "Sky.h"
 #include "Renderer.h"
+#include "Emitter.h"
 
 #include <DirectXMath.h>
 #include <wrl/client.h> // Used for ComPtr - a smart pointer for COM objects
@@ -36,6 +37,7 @@ private:
 
 	// Our scene
 	std::vector<std::shared_ptr<GameEntity>> entities;
+	std::vector<std::shared_ptr<Emitter>> emitters;
 	std::shared_ptr<Camera> camera;
 
 	// Lights

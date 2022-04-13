@@ -141,6 +141,9 @@ void Game::LoadAssetsAndCreateEntities()
 
 	std::shared_ptr<SimplePixelShader> RefractionPS = LoadShader(SimplePixelShader, L"RefractionPS.cso");
 
+	std::shared_ptr<SimpleVertexShader> particleVS = LoadShader(SimpleVertexShader, L"ParticleVS.cso");
+	std::shared_ptr<SimplePixelShader> particlePS = LoadShader(SimplePixelShader, L"ParticlePS.cso");
+
 	// Set up the sprite batch and load the sprite font
 	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
 	arial = std::make_shared<SpriteFont>(device.Get(), GetFullPathTo_Wide(L"../../Assets/Textures/arial.spritefont").c_str());
@@ -159,6 +162,9 @@ void Game::LoadAssetsAndCreateEntities()
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> bronzeA,  bronzeN,  bronzeR,  bronzeM;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> roughA,  roughN,  roughR,  roughM;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> woodA,  woodN,  woodR,  woodM;
+
+	// particle textures
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> testParticle1, testParticle2, testParticle3;
 
 	// Load the textures using our succinct LoadTexture() macro
 	LoadTexture(L"../../Assets/Textures/cobblestone_albedo.png", cobbleA);
@@ -195,6 +201,10 @@ void Game::LoadAssetsAndCreateEntities()
 	LoadTexture(L"../../Assets/Textures/wood_normals.png", woodN);
 	LoadTexture(L"../../Assets/Textures/wood_roughness.png", woodR);
 	LoadTexture(L"../../Assets/Textures/wood_metal.png", woodM);
+
+	LoadTexture(L"../../Assets/Particles/transparent/symbol_01.png", testParticle1);
+	LoadTexture(L"../../Assets/Particles/transparent/fire_01.png", testParticle2);
+	LoadTexture(L"../../Assets/Particles/transparent/star_08.png", testParticle3);
 
 	// Describe and create our sampler state
 	D3D11_SAMPLER_DESC sampDesc = {};
@@ -379,7 +389,7 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<GameEntity> paintSpherePBR = std::make_shared<GameEntity>(sphereMesh, paintMatPBR);
 	paintSpherePBR->GetTransform()->SetPosition(-2, 2, 0);
 
-	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, cobbleMat2xRefract);
+	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, scratchedMatPBR);
 	scratchSpherePBR->GetTransform()->SetPosition(0, 2, 0);
 
 	std::shared_ptr<GameEntity> bronzeSpherePBR = std::make_shared<GameEntity>(sphereMesh, bronzeMatPBR);
@@ -435,6 +445,58 @@ void Game::LoadAssetsAndCreateEntities()
 	lightVS = vertexShader;
 	lightPS = solidColorPS;
 
+	// Make emitters
+	EmitterProperties props = {};
+	props.particlesPerSecond = 50;
+	props.particleLifetime = 1;
+	props.startColor = XMFLOAT4(1, 0.1f, 0.8f, 1);
+	props.endColor = XMFLOAT4(1, 0.1f, 0.8f, 0.5f);
+	props.shape = EmitterShape::Box;
+	props.shapeDimensions = { 5,1,1 };
+	props.startSize = 0.5f;
+	props.endSize = 0.0f;
+	props.startVelocity = XMFLOAT3(0, 5.0f, 0);
+	props.acceleration = XMFLOAT3(0, -9.8f, 0);
+	props.startRotation = 0;
+	props.startRotationVelocity = 1.0f;
+	props.rotationAcceleration = -1.0f;
+	std::shared_ptr<Emitter> testEmitter1 = std::make_shared<Emitter>(1000, props, device, context, particleVS, particlePS, testParticle1, samplerOptions);
+	testEmitter1->GetTransform().SetPosition(-5, 0, -2);
+
+	props = {};
+	props.particlesPerSecond = 25;
+	props.particleLifetime = 1;
+	props.startColor = XMFLOAT4(1, 0.1f, 0.1f, 1);
+	props.endColor = XMFLOAT4(0, 0, 0, 1);
+	props.shape = EmitterShape::Point;
+	props.startSize = 0.1f;
+	props.endSize = 1.0f;
+	props.startVelocity = XMFLOAT3(5.0f, 5.0f, -5.0f);
+	props.acceleration = XMFLOAT3(0, -9.8f, 0);
+	props.startRotation = 0;
+	std::shared_ptr<Emitter> testEmitter2 = std::make_shared<Emitter>(1000, props, device, context, particleVS, particlePS, testParticle2, samplerOptions);
+	testEmitter2->GetTransform().SetPosition(0, 0, -2);
+
+	props = {};
+	props.particlesPerSecond = 10;
+	props.particleLifetime = 0.5f;
+	props.startColor = XMFLOAT4(1, 1, 0, 1);
+	props.endColor = XMFLOAT4(1, 1, 1, 0.5f);
+	props.shape = EmitterShape::Sphere;
+	props.shapeDimensions = { 1,1,1 };
+	props.startSize = 0.5f;
+	props.endSize = 3.0f;
+	props.startVelocity = XMFLOAT3(0, 0, 0);
+	props.acceleration = XMFLOAT3(0, 0, 0);
+	props.startRotation = 0;
+	props.startRotationVelocity = 1.0f;
+	props.rotationAcceleration = -1.0f;
+	std::shared_ptr<Emitter> testEmitter3 = std::make_shared<Emitter>(1000, props, device, context, particleVS, particlePS, testParticle3, samplerOptions);
+	testEmitter3->GetTransform().SetPosition(5, 0, -2);
+
+	emitters.push_back(testEmitter1);
+	emitters.push_back(testEmitter2);
+	emitters.push_back(testEmitter3);
 
 	// Make the renderer
 	renderer = std::make_shared<Renderer>(
@@ -447,6 +509,7 @@ void Game::LoadAssetsAndCreateEntities()
 		height,
 		sky,
 		entities,
+		emitters,
 		lights,
 		lightMesh,
 		lightVS,
@@ -597,6 +660,12 @@ void Game::Update(float deltaTime, float totalTime)
 	// Update the camera
 	camera->Update(deltaTime);
 
+	// Update all emitters
+	for (auto& e : emitters)
+		e->Update(deltaTime, totalTime);
+
+	//emitters[0]->GetTransform().SetPosition(5 * sin(totalTime / 5.0f), 0, 0);
+
 	// Check individual input
 	if (input.KeyDown(VK_ESCAPE)) Quit();
 	if (input.KeyPress(VK_TAB)) GenerateLights();
@@ -607,5 +676,5 @@ void Game::Update(float deltaTime, float totalTime)
 // --------------------------------------------------------
 void Game::Draw(float deltaTime, float totalTime)
 {
-	renderer->Render(camera);
+	renderer->Render(camera, totalTime);
 }

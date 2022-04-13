@@ -2,6 +2,7 @@
 
 #include "Sky.h"
 #include "GameEntity.h"
+#include "Emitter.h"
 #include "Lights.h"
 
 #include <memory>
@@ -23,6 +24,7 @@ public:
 		unsigned int windowHeight,
 		std::shared_ptr<Sky> sky,
 		const std::vector<std::shared_ptr<GameEntity>>& entities,
+		const std::vector<std::shared_ptr<Emitter>>& emitters,
 		const std::vector<Light>& lights,
 		std::shared_ptr<Mesh> lightMesh,
 		std::shared_ptr<SimpleVertexShader> lightVS,
@@ -42,7 +44,7 @@ public:
 		Microsoft::WRL::ComPtr<ID3D11RenderTargetView> backBufferRTV,
 		Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depthBufferDSV);
 
-	void Render(std::shared_ptr<Camera> camera);
+	void Render(std::shared_ptr<Camera> camera, float totalTime);
 
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> GetSceneColorRTV();
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneColorSRV();
@@ -73,6 +75,7 @@ private:
 
 	std::shared_ptr<Sky> sky;
 	const std::vector<std::shared_ptr<GameEntity>>& entities;
+	const std::vector<std::shared_ptr<Emitter>>& emitters;
 	const std::vector<Light>& lights;
 
 	std::shared_ptr<Mesh> lightMesh;
@@ -96,5 +99,9 @@ private:
 	std::shared_ptr<SimpleVertexShader> fullScreenVS;
 	std::shared_ptr<SimplePixelShader> texturePS;
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler;
+
+	// Particle states
+	Microsoft::WRL::ComPtr<ID3D11BlendState> particleBlendAdditive;
+	Microsoft::WRL::ComPtr<ID3D11DepthStencilState> particleDepthState;
 };
 

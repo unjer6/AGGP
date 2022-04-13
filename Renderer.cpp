@@ -16,6 +16,7 @@ Renderer::Renderer(
 	unsigned int windowHeight,
 	std::shared_ptr<Sky> sky,
 	const std::vector<std::shared_ptr<GameEntity>>& entities,
+	const std::vector<std::shared_ptr<Emitter>>& emitters,
 	const std::vector<Light>& lights,
 	std::shared_ptr<Mesh> lightMesh,
 	std::shared_ptr<SimpleVertexShader> lightVS,
@@ -25,8 +26,9 @@ Renderer::Renderer(
 	std::shared_ptr<SimpleVertexShader> fullScreenVS,
 	std::shared_ptr<SimplePixelShader> texturePS,
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler)
-	: entities(entities)
-	, lights(lights)
+  : entities(entities),
+	emitters(emitters),
+	lights(lights)
 {
 	this->device = device;
 	this->context = context;
@@ -46,6 +48,25 @@ Renderer::Renderer(
 	this->basicSampler = basicSampler;
 
 	PostResize(windowWidth, windowHeight, backBufferRTV, depthBufferDSV);
+
+	// Set up render states for particles (since all emitters might use similar ones)
+	D3D11_DEPTH_STENCIL_DESC particleDepthDesc = {};
+	particleDepthDesc.DepthEnable = true; // READ from depth buffer
+	particleDepthDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO; // No depth WRITING
+	particleDepthDesc.DepthFunc = D3D11_COMPARISON_LESS; // Standard depth comparison
+	device->CreateDepthStencilState(&particleDepthDesc, particleDepthState.GetAddressOf());
+
+	// Additive blend state for particles (Not every emitter is necessarily additively blended!)
+	D3D11_BLEND_DESC additiveBlendDesc = {};
+	additiveBlendDesc.RenderTarget[0].BlendEnable = true;
+	additiveBlendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD; // Add both colors
+	additiveBlendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD; // Add both alpha values
+	additiveBlendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;   // 100% of source color
+	additiveBlendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;  // 100% of destination color
+	additiveBlendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;   // 100% of source alpha
+	additiveBlendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;  // 100% of destination alpha
+	additiveBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+	device->CreateBlendState(&additiveBlendDesc, particleBlendAdditive.GetAddressOf());
 }
 
 Renderer::~Renderer()
@@ -81,7 +102,7 @@ void Renderer::PostResize(
 	CreateRenderTarget(windowWidth, windowHeight, sceneDepthRTV, sceneDepthSRV, DXGI_FORMAT_R32_FLOAT);
 }
 
-void Renderer::Render(std::shared_ptr<Camera> camera)
+void Renderer::Render(std::shared_ptr<Camera> camera, float totalTime)
 {
 	// Background color for clearing
 	const float color[4] = { 0, 0, 0, 1 };
@@ -172,6 +193,27 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 
 	// Draw the light sources
 	DrawPointLights(camera);
+
+	// Draw particles =====
+	{
+		// Ensure we have the back buffer AND the depth buffer bound
+		targets[0] = backBufferRTV.Get();
+		context->OMSetRenderTargets(1, targets, depthBufferDSV.Get());
+
+		// Set up render states
+		context->OMSetBlendState(particleBlendAdditive.Get(), 0, 0xFFFFFFFF);
+		context->OMSetDepthStencilState(particleDepthState.Get(), 0);
+
+		// Loop and draw each emitter
+		for (auto& e : emitters)
+		{
+			e->Draw(camera.get(), totalTime);
+		}
+
+		// Reset render states
+		context->OMSetBlendState(0, 0, 0xFFFFFFFF);
+		context->OMSetDepthStencilState(0, 0);
+	}
 
 	// Draw some UI
 	DrawUI();
