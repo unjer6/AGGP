@@ -6,6 +6,11 @@
 #include "ImGUI/imgui_impl_dx11.h"
 #include "ImGUI/imgui_impl_win32.h"
 
+//
+// Code borrowed from Github Demo Repo
+// https://github.com/vixorien/ggp-advanced-demos/blob/main/Refraction/Renderer.cpp
+//
+
 Renderer::Renderer(
 	Microsoft::WRL::ComPtr<ID3D11Device> device,
 	Microsoft::WRL::ComPtr<ID3D11DeviceContext> context,
@@ -25,6 +30,7 @@ Renderer::Renderer(
 	std::shared_ptr<DirectX::SpriteFont> arial,
 	std::shared_ptr<SimpleVertexShader> fullScreenVS,
 	std::shared_ptr<SimplePixelShader> texturePS,
+	std::shared_ptr<SimpleVertexShader> shadowVS,
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler)
   : entities(entities),
 	emitters(emitters),
@@ -45,6 +51,7 @@ Renderer::Renderer(
 	this->arial = arial;
 	this->fullScreenVS = fullScreenVS;
 	this->texturePS = texturePS;
+	this->shadowVS = shadowVS;
 	this->basicSampler = basicSampler;
 
 	PostResize(windowWidth, windowHeight, backBufferRTV, depthBufferDSV);
@@ -67,6 +74,9 @@ Renderer::Renderer(
 	additiveBlendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;  // 100% of destination alpha
 	additiveBlendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	device->CreateBlendState(&additiveBlendDesc, particleBlendAdditive.GetAddressOf());
+	
+	// Create shadow map resources
+	CreateShadowMapResources(1024, 10.0f);
 }
 
 Renderer::~Renderer()
@@ -118,6 +128,9 @@ void Renderer::Render(std::shared_ptr<Camera> camera, float totalTime)
 		1.0f,
 		0);
 
+	// Render our shadow map
+	RenderShadowMap();
+
 	// declare stores for useful data
 	const int numTargets = 4;
 	ID3D11RenderTargetView* targets[numTargets] = {};
@@ -135,6 +148,10 @@ void Renderer::Render(std::shared_ptr<Camera> camera, float totalTime)
 			continue;
 		}
 
+		std::shared_ptr<SimpleVertexShader> vs = ge->GetMaterial()->GetVertexShader();
+		vs->SetMatrix4x4("shadowView", shadowViewMatrix);
+		vs->SetMatrix4x4("shadowProjection", shadowProjectionMatrix);
+
 		// Set the "per frame" data
 		// Note that this should literally be set once PER FRAME, before
 		// the draw loop, but we're currently setting it per entity since 
@@ -150,6 +167,9 @@ void Renderer::Render(std::shared_ptr<Camera> camera, float totalTime)
 		ps->SetShaderResourceView("BrdfLookUpMap", sky->GetLookUpTable());
 		ps->SetShaderResourceView("IrradianceIBLMap", sky->GetIrradianceMap());
 		ps->SetShaderResourceView("SpecularIBLMap", sky->GetSpecularMap());
+
+		ps->SetShaderResourceView("ShadowMap", shadowSRV);
+		ps->SetSamplerState("ShadowSampler", shadowSampler);
 
 		// Draw the entity
 		ge->Draw(context, camera);
@@ -379,4 +399,158 @@ void Renderer::CreateRenderTarget(
 		rtTexture.Get(),     // Texture resource itself
 		0,                   // Null description = default SRV options
 		srv.GetAddressOf()); // ComPtr<ID3D11ShaderResourceView>
+}
+
+void Renderer::CreateShadowMapResources(unsigned int shadowMapSize, float projectionSize)
+{
+	// Create the initial shadow map
+	ResizeShadowMap(shadowMapSize);
+
+	// Create the special "comparison" sampler state for shadows
+	D3D11_SAMPLER_DESC shadowSampDesc = {};
+	shadowSampDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR; // COMPARISON filter!
+	shadowSampDesc.ComparisonFunc = D3D11_COMPARISON_LESS;
+	shadowSampDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+	shadowSampDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+	shadowSampDesc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+	shadowSampDesc.BorderColor[0] = 1.0f;
+	shadowSampDesc.BorderColor[1] = 1.0f;
+	shadowSampDesc.BorderColor[2] = 1.0f;
+	shadowSampDesc.BorderColor[3] = 1.0f;
+	device->CreateSamplerState(&shadowSampDesc, &shadowSampler);
+
+	// Create a rasterizer state
+	D3D11_RASTERIZER_DESC shadowRastDesc = {};
+	shadowRastDesc.FillMode = D3D11_FILL_SOLID;
+	shadowRastDesc.CullMode = D3D11_CULL_BACK;
+	shadowRastDesc.DepthClipEnable = true;
+	shadowRastDesc.DepthBias = 1000; // Multiplied by (smallest possible positive value storable in the depth buffer)
+	shadowRastDesc.DepthBiasClamp = 0.0f;
+	shadowRastDesc.SlopeScaledDepthBias = 1.0f;
+	device->CreateRasterizerState(&shadowRastDesc, &shadowRasterizer);
+
+	// Create the "camera" matrices for the shadow map rendering
+
+	// View matrix will be re-created each frame in the event the light rotates
+
+	// Projection
+	UpdateShadowProjection(projectionSize);
+}
+
+
+void Renderer::UpdateShadowProjection(float projectionSize)
+{
+	shadowProjectionSize = projectionSize;
+
+	DirectX::XMMATRIX shProj = DirectX::XMMatrixOrthographicLH(shadowProjectionSize, shadowProjectionSize, 0.1f, 100.0f);
+	XMStoreFloat4x4(&shadowProjectionMatrix, shProj);
+}
+
+
+void Renderer::UpdateShadowView(const Light* light)
+{
+	DirectX::XMFLOAT3 lightPos(light->Direction.x * -20, light->Direction.y * -20, light->Direction.z * -20);
+
+	DirectX::XMMATRIX shView = DirectX::XMMatrixLookToLH(
+		DirectX::XMLoadFloat3(&lightPos),
+		DirectX::XMLoadFloat3(&light->Direction),
+		DirectX::XMVectorSet(0, 1, 0, 0));
+	DirectX::XMStoreFloat4x4(&shadowViewMatrix, shView);
+}
+
+
+
+void Renderer::ResizeShadowMap(unsigned int shadowMapSize)
+{
+	// Reset com ptrs
+	shadowSRV.Reset();
+	shadowDSV.Reset();
+
+	// Save resolution
+	shadowMapResolution = shadowMapSize;
+
+	// Create the actual texture that will be the shadow map
+	D3D11_TEXTURE2D_DESC shadowDesc = {};
+	shadowDesc.Width = shadowMapResolution;
+	shadowDesc.Height = shadowMapResolution;
+	shadowDesc.ArraySize = 1;
+	shadowDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+	shadowDesc.CPUAccessFlags = 0;
+	shadowDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	shadowDesc.MipLevels = 1;
+	shadowDesc.MiscFlags = 0;
+	shadowDesc.SampleDesc.Count = 1;
+	shadowDesc.SampleDesc.Quality = 0;
+	shadowDesc.Usage = D3D11_USAGE_DEFAULT;
+	Microsoft::WRL::ComPtr<ID3D11Texture2D> shadowTexture;
+	device->CreateTexture2D(&shadowDesc, 0, shadowTexture.GetAddressOf());
+
+	// Create the depth/stencil
+	D3D11_DEPTH_STENCIL_VIEW_DESC shadowDSDesc = {};
+	shadowDSDesc.Format = DXGI_FORMAT_D32_FLOAT;
+	shadowDSDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+	shadowDSDesc.Texture2D.MipSlice = 0;
+	device->CreateDepthStencilView(shadowTexture.Get(), &shadowDSDesc, shadowDSV.GetAddressOf());
+
+	// Create the SRV for the shadow map
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MipLevels = 1;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	device->CreateShaderResourceView(shadowTexture.Get(), &srvDesc, shadowSRV.GetAddressOf());
+}
+
+Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Renderer::GetShadowMapSRV() { return shadowSRV; }
+unsigned int Renderer::GetShadowMapResolution() { return shadowMapResolution; }
+float Renderer::GetShadowProjectionSize() { return shadowProjectionSize; }
+
+void Renderer::SetShadowMapResolution(unsigned int resolution) { ResizeShadowMap(resolution); }
+void Renderer::SetShadowProjectionSize(float projectionSize) { UpdateShadowProjection(projectionSize); }
+
+
+void Renderer::RenderShadowMap()
+{
+	// Update the shadow view matrix to match the first directional light
+	UpdateShadowView(&lights[0]);
+
+	// Initial pipeline setup - No RTV necessary - Clear shadow map
+	context->OMSetRenderTargets(0, 0, shadowDSV.Get());
+	context->ClearDepthStencilView(shadowDSV.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+	context->RSSetState(shadowRasterizer.Get());
+
+	// Need to create a viewport that matches the shadow map resolution
+	D3D11_VIEWPORT viewport = {};
+	viewport.TopLeftX = 0.0f;
+	viewport.TopLeftY = 0.0f;
+	viewport.Width = (float)shadowMapResolution;
+	viewport.Height = (float)shadowMapResolution;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+	context->RSSetViewports(1, &viewport);
+
+	// Turn on our shadow map Vertex Shader
+	// and turn OFF the pixel shader entirely
+	shadowVS->SetShader();
+	shadowVS->SetMatrix4x4("view", shadowViewMatrix);
+	shadowVS->SetMatrix4x4("projection", shadowProjectionMatrix);
+	shadowVS->CopyBufferData("perFrame");
+	context->PSSetShader(0, 0, 0); // No PS
+
+	// Loop and draw all entities
+	for (auto& e : entities)
+	{
+		shadowVS->SetMatrix4x4("world", e->GetTransform()->GetWorldMatrix());
+		shadowVS->CopyBufferData("perObject");
+
+		// Draw the mesh
+		e->GetMesh()->SetBuffersAndDraw(context);
+	}
+
+	// After rendering the shadow map, go back to the screen
+	context->OMSetRenderTargets(1, backBufferRTV.GetAddressOf(), depthBufferDSV.Get());
+	viewport.Width = (float)this->windowWidth;
+	viewport.Height = (float)this->windowHeight;
+	context->RSSetViewports(1, &viewport);
+	context->RSSetState(0);
 }

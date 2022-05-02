@@ -11,6 +11,11 @@
 #include "SpriteBatch.h"
 #include "SpriteFont.h"
 
+//
+// Code borrowed from Github Demo Repo
+// https://github.com/vixorien/ggp-advanced-demos/blob/main/Refraction/Renderer.h
+//
+
 class Renderer
 {
 public:
@@ -33,6 +38,7 @@ public:
 		std::shared_ptr<DirectX::SpriteFont> arial,
 		std::shared_ptr<SimpleVertexShader> fullScreenVS,
 		std::shared_ptr<SimplePixelShader> texturePS,
+		std::shared_ptr<SimpleVertexShader> shadowVS,
 		Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler);
 
 	~Renderer();
@@ -52,6 +58,15 @@ public:
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneNormalsSRV();
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> GetSceneDepthRTV();
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetSceneDepthSRV();
+
+	void ResizeShadowMap(unsigned int shadowMapSize);
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetShadowMapSRV();
+	unsigned int GetShadowMapResolution();
+	float GetShadowProjectionSize();
+
+	void SetShadowMapResolution(unsigned int resolution);
+	void SetShadowProjectionSize(float projectionSize);
 private:
 	void DrawPointLights(std::shared_ptr<Camera> camera);
 	void DrawUI();
@@ -89,6 +104,20 @@ private:
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> sceneColorRTV;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneColorSRV;
 
+	// Shadow resources
+	int shadowMapResolution;
+	float shadowProjectionSize;
+	Microsoft::WRL::ComPtr<ID3D11DepthStencilView> shadowDSV;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> shadowSRV;
+	Microsoft::WRL::ComPtr<ID3D11SamplerState> shadowSampler;
+	Microsoft::WRL::ComPtr<ID3D11RasterizerState> shadowRasterizer;
+	DirectX::XMFLOAT4X4 shadowViewMatrix;
+	DirectX::XMFLOAT4X4 shadowProjectionMatrix;
+	void CreateShadowMapResources(unsigned int shadowMapSize, float projectionSize);
+	void UpdateShadowProjection(float projectionSize);
+	void UpdateShadowView(const Light* light);
+	void RenderShadowMap();
+
 	// Extra render targets just for the fun of it (displayed in ImGui)
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> sceneNormalsRTV;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneNormalsSRV;
@@ -98,6 +127,7 @@ private:
 	// material information for a fullscreen texture copy
 	std::shared_ptr<SimpleVertexShader> fullScreenVS;
 	std::shared_ptr<SimplePixelShader> texturePS;
+	std::shared_ptr<SimpleVertexShader> shadowVS;
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> basicSampler;
 
 	// Particle states

@@ -144,6 +144,8 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<SimpleVertexShader> particleVS = LoadShader(SimpleVertexShader, L"ParticleVS.cso");
 	std::shared_ptr<SimplePixelShader> particlePS = LoadShader(SimplePixelShader, L"ParticlePS.cso");
 
+	std::shared_ptr<SimpleVertexShader> shadowVS = LoadShader(SimpleVertexShader, L"ShadowVS.cso");
+
 	// Set up the sprite batch and load the sprite font
 	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
 	arial = std::make_shared<SpriteFont>(device.Get(), GetFullPathTo_Wide(L"../../Assets/Textures/arial.spritefont").c_str());
@@ -381,26 +383,34 @@ void Game::LoadAssetsAndCreateEntities()
 
 	// === Create the PBR entities =====================================
 	std::shared_ptr<GameEntity> cobSpherePBR = std::make_shared<GameEntity>(sphereMesh, cobbleMat2xPBR);
-	cobSpherePBR->GetTransform()->SetPosition(-6, 2, 0);
+	cobSpherePBR->GetTransform()->SetPosition(-6, 0, 0);
 
 	std::shared_ptr<GameEntity> floorSpherePBR = std::make_shared<GameEntity>(sphereMesh, floorMatPBR);
-	floorSpherePBR->GetTransform()->SetPosition(-4, 2, 0);
+	floorSpherePBR->GetTransform()->SetPosition(-4, 0, 0);
 
 	std::shared_ptr<GameEntity> paintSpherePBR = std::make_shared<GameEntity>(sphereMesh, paintMatPBR);
-	paintSpherePBR->GetTransform()->SetPosition(-2, 2, 0);
+	paintSpherePBR->GetTransform()->SetPosition(-2, 0, 0);
 
 	std::shared_ptr<GameEntity> scratchSpherePBR = std::make_shared<GameEntity>(sphereMesh, scratchedMatPBR);
-	scratchSpherePBR->GetTransform()->SetPosition(0, 2, 0);
+	scratchSpherePBR->GetTransform()->SetPosition(0, 0, 0);
 
 	std::shared_ptr<GameEntity> bronzeSpherePBR = std::make_shared<GameEntity>(sphereMesh, bronzeMatPBR);
-	bronzeSpherePBR->GetTransform()->SetPosition(2, 2, 0);
+	bronzeSpherePBR->GetTransform()->SetPosition(2, 0, 0);
 
 	std::shared_ptr<GameEntity> roughSpherePBR = std::make_shared<GameEntity>(sphereMesh, roughMatPBR);
-	roughSpherePBR->GetTransform()->SetPosition(4, 2, 0);
+	roughSpherePBR->GetTransform()->SetPosition(4, 0, 0);
 
 	std::shared_ptr<GameEntity> woodSpherePBR = std::make_shared<GameEntity>(sphereMesh, woodMatPBR);
-	woodSpherePBR->GetTransform()->SetPosition(6, 2, 0);
+	woodSpherePBR->GetTransform()->SetPosition(6, 0, 0);
 
+	std::shared_ptr<GameEntity> woodBackground = std::make_shared<GameEntity>(cubeMesh, woodMatPBR);
+	woodBackground->GetTransform()->SetPosition(0, 0, 3);
+	woodBackground->GetTransform()->SetScale(20, 10, 1);
+
+	std::shared_ptr<GameEntity> movingEntity = std::make_shared<GameEntity>(helixMesh, cobbleMat2xPBR);
+	movingEntity->GetTransform()->SetPosition(0, 0, -3);
+
+	entities.push_back(movingEntity);
 	entities.push_back(cobSpherePBR);
 	entities.push_back(floorSpherePBR);
 	entities.push_back(paintSpherePBR);
@@ -408,37 +418,7 @@ void Game::LoadAssetsAndCreateEntities()
 	entities.push_back(bronzeSpherePBR);
 	entities.push_back(roughSpherePBR);
 	entities.push_back(woodSpherePBR);
-
-	// Create the non-PBR entities ==============================
-	std::shared_ptr<GameEntity> cobSphere = std::make_shared<GameEntity>(sphereMesh, cobbleMat2x);
-	cobSphere->GetTransform()->SetPosition(-6, -2, 0);
-
-	std::shared_ptr<GameEntity> floorSphere = std::make_shared<GameEntity>(sphereMesh, floorMat);
-	floorSphere->GetTransform()->SetPosition(-4, -2, 0);
-
-	std::shared_ptr<GameEntity> paintSphere = std::make_shared<GameEntity>(sphereMesh, paintMat);
-	paintSphere->GetTransform()->SetPosition(-2, -2, 0);
-
-	std::shared_ptr<GameEntity> scratchSphere = std::make_shared<GameEntity>(sphereMesh, scratchedMat);
-	scratchSphere->GetTransform()->SetPosition(0, -2, 0);
-
-	std::shared_ptr<GameEntity> bronzeSphere = std::make_shared<GameEntity>(sphereMesh, bronzeMat);
-	bronzeSphere->GetTransform()->SetPosition(2, -2, 0);
-
-	std::shared_ptr<GameEntity> roughSphere = std::make_shared<GameEntity>(sphereMesh, roughMat);
-	roughSphere->GetTransform()->SetPosition(4, -2, 0);
-
-	std::shared_ptr<GameEntity> woodSphere = std::make_shared<GameEntity>(sphereMesh, woodMat);
-	woodSphere->GetTransform()->SetPosition(6, -2, 0);
-
-	entities.push_back(cobSphere);
-	entities.push_back(floorSphere);
-	entities.push_back(paintSphere);
-	entities.push_back(scratchSphere);
-	entities.push_back(bronzeSphere);
-	entities.push_back(roughSphere);
-	entities.push_back(woodSphere);
-
+	entities.push_back(woodBackground);
 
 	// Save assets needed for drawing point lights
 	lightMesh = sphereMesh;
@@ -494,9 +474,9 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<Emitter> testEmitter3 = std::make_shared<Emitter>(1000, props, device, context, particleVS, particlePS, testParticle3, samplerOptions);
 	testEmitter3->GetTransform().SetPosition(5, 0, -2);
 
-	emitters.push_back(testEmitter1);
+	/*emitters.push_back(testEmitter1);
 	emitters.push_back(testEmitter2);
-	emitters.push_back(testEmitter3);
+	emitters.push_back(testEmitter3);*/
 
 	// Make the renderer
 	renderer = std::make_shared<Renderer>(
@@ -518,6 +498,7 @@ void Game::LoadAssetsAndCreateEntities()
 		arial,
 		fullscreenVS,
 		simpleTexturePS,
+		shadowVS,
 		samplerOptions);
 }
 
@@ -534,26 +515,19 @@ void Game::GenerateLights()
 	// Setup directional lights
 	Light dir1 = {};
 	dir1.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir1.Direction = XMFLOAT3(1, -1, 1);
-	dir1.Color = XMFLOAT3(0.8f, 0.8f, 0.8f);
+	dir1.Direction = XMFLOAT3(0, 0, 1);
+	dir1.Color = XMFLOAT3(1,1,1);
 	dir1.Intensity = 1.0f;
 
 	Light dir2 = {};
 	dir2.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir2.Direction = XMFLOAT3(-1, -0.25f, 0);
-	dir2.Color = XMFLOAT3(0.2f, 0.2f, 0.2f);
+	dir2.Direction = XMFLOAT3(-1, 0, 0);
+	dir2.Color = XMFLOAT3(1, 1, 1);
 	dir2.Intensity = 1.0f;
-
-	Light dir3 = {};
-	dir3.Type = LIGHT_TYPE_DIRECTIONAL;
-	dir3.Direction = XMFLOAT3(0, -1, 1);
-	dir3.Color = XMFLOAT3(0.2f, 0.2f, 0.2f);
-	dir3.Intensity = 1.0f;
 
 	// Add light to the list
 	lights.push_back(dir1);
-	lights.push_back(dir2);
-	lights.push_back(dir3);
+	//lights.push_back(dir2);
 
 	// Create the rest of the lights
 	while (lights.size() < lightCount)
@@ -652,6 +626,8 @@ void Game::Update(float deltaTime, float totalTime)
 			ImGui::Image(renderer->GetSceneNormalsSRV().Get(), size);
 			ImGui::Text("Scene Depth:");
 			ImGui::Image(renderer->GetSceneDepthSRV().Get(), size);
+			ImGui::Text("Shadow Map:");
+			ImGui::Image(renderer->GetShadowMapSRV().Get(), size);
 		}
 		ImGui::End();
 	}
@@ -659,6 +635,9 @@ void Game::Update(float deltaTime, float totalTime)
 
 	// Update the camera
 	camera->Update(deltaTime);
+
+	float offset = sinf(totalTime);
+	entities[0].get()->GetTransform()->SetPosition(offset * 7, 0, -3);
 
 	// Update all emitters
 	for (auto& e : emitters)
